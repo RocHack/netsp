@@ -5,7 +5,7 @@ ini_set('display_errors', '1');
 header('Content-type: text/css');
 
 $hosts = explode(' ',
-	'cycle1 cycle2 cycle3 ' .
+	'cycle1 cycle2 cycle3 niagara1 niagara2 utility1 hoover anon dorito west inner ' .
     'blake cascade colden macomb marcy nye ' .
     'phelps porter sawteeth seward tabletop ' .
 	'algonquin armstrong cliff colvin gothics haystack hough ' .
@@ -13,15 +13,20 @@ $hosts = explode(' ',
 
 $dir = 'data';
 
-# get files that have been modified in the last hour.
+# get files that have been modified in the last 10 minutes
 # each host should modify its file every 10 minutes in this directory.
-exec("find $dir -mtime -1 -exec basename {} \;",
+exec("find $dir -mmin -10 -exec basename {} \;",
 	$online_hosts) or exit;
 
 # print css rules for each host's uptime
 foreach ($hosts as $host) {
 	$online = (array_search($host, $online_hosts) !== false);
 	$color = $online ? 'green' : 'red';
-	print "#box_$host { color: $color; }\n";
+    if ($host == 'west' || $host == 'inner') {
+    	print "#prn_$host { color: $color; }\n";
+    } else {
+    	print "#box_$host { color: $color; }\n";
+    }
 }
+
 ?>
