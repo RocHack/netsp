@@ -2,4 +2,6 @@ data/
 pjstatus*
 *.swp
 *~
+data.json
+data.json.lock
 

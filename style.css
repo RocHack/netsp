@@ -1,0 +1,235 @@
+h1, h2, h3, h4, h5, h6 {
+    margin: .25em auto;
+}
+
+h3 {
+    font-style: italic;
+    font-size: 1.5em;
+}
+
+div.layout_container {
+    width: 80;
+    margin: 0 auto;
+}
+
+div.layout {
+    display: inline-block;
+    margin: .5em;
+    border: .1em solid #cccccc;
+    vertical-align: middle;
+    text-align: center;
+}
+
+div > p {
+    margin: 0;
+    padding: .3em;
+}
+
+div > p > small {
+    font-size: 1em;
+    color: #aaaaaa;
+}
+
+/*div.comp > p {
+    margin-top: 2;
+}
+
+div.printer > p {
+    margin-top: 1;
+}
+
+div.camera > p {
+    margin-left: -3;
+    margin-top: 1;
+}*/
+
+
+div.comp, div.camera, div.printer {
+    width: 5.5em;
+    height: 5.5em;
+    margin: .5em;
+    cursor: pointer;
+}
+
+div.spc {
+    width: 5.5em;
+    height: 5.5em;
+    margin: .5em;
+    border: .1em solid white;
+}
+
+/*
+
+div.vspl {
+    border: none;
+    width: 10;
+    height: 12;
+}
+
+div.board {
+    width: .5em;
+    height: 10em;
+    margin-left: -.5em;
+}
+
+div.door {
+    width: 5;
+    height: 0;
+    margin-bottom: 3;
+}
+
+div.wboard {
+    width: 30;
+    height: 0;
+    margin-bottom: 3;
+}
+
+div.table {
+    width: 12;
+    height: 5;
+    margin-left: 10;
+}
+
+div.couch {
+    width: 11;
+    height: 4;
+}*/
+
+div#infobox {
+    display: none;
+    position: absolute;
+    top: auto;
+    left: auto;
+    bottom: auto;
+    right: auto;
+    width: 600px;
+    padding: 1em;
+    margin: 1em 0 3em;
+    color: #000;
+    background: #999; /* default background for browsers without gradient support */
+    /* css3 */
+    background: -webkit-linear-gradient(#eee, #999);
+    background: -moz-linear-gradient(#eee, #999);
+    background: -o-linear-gradient(#eee, #999);
+    background: linear-gradient(#eee, #999);
+    -webkit-border-radius: 1em;
+    -moz-border-radius: 1em;
+    border-radius: 1em;
+    box-shadow: 0 0 2em #444;
+}
+
+div#infobox_arrow {
+    display: none; 
+    position: absolute;
+    border-style: solid;
+    top: auto; /* value = - border-top-width - border-bottom-width */
+    right: auto; /* controls horizontal position */
+    bottom: -15px;
+    left: 10px;
+    border-width: 1em 1em 0; /* vary these values to change the angle of the vertex */
+    border-color: #999 transparent;
+    /* reduce the damage in FF3.0 */
+    width: 0;
+    height: 0;
+}
+
+div#infobox ul {
+    margin: 1em 0.5em 0 0;
+    padding: 0 0 0 1.5em;
+    list-style: disc outside none;
+}
+
+div#infobox ul ul {
+    margin: 0;
+    padding: 0 0 0 3em;
+    list-style: circle outside none;
+}
+
+
+div#infobox span.offline {
+    color: red;
+    font-weight: bold;
+}
+
+div#infobox span.online {
+    color: green;
+}
+
+div#infobox span.online_old {
+    color: olive;
+    font-weight: bold;
+}
+
+p.tools {
+    display: block;
+    float: right;
+    margin: 0;
+    padding: 0;
+}
+
+p.tools > span {
+    display: inline-block;
+    font-weight: bold;
+    margin: .5em;
+    padding: .5em;
+    width: 1em;
+    height: 1em;
+    cursor: pointer;
+    text-align: center;
+    vertical-align: middle;
+    -webkit-border-radius: ;
+    -moz-border-radius: ;
+    border-radius: ;
+}
+
+p.tools > span:hover {
+    box-shadow: .2em .2em .2em #444;
+    border: .1em solid #444;
+}
+
+p.tools > span:active {
+    box-shadow: -.2em -.2em .2em #444;
+    background: #888;
+}
+
+div.prog {
+    margin: 0;
+    padding: 0;
+    display: inline-block;
+    width: 100%;
+    height: 1.2em;
+    background: #ccc;
+}
+
+div.prog b {
+    overflow: none;
+    white-space: nowrap;
+    background: rgba(204,204,204,.5);
+}
+
+div.prog_usage {
+    margin: 0;
+    padding: 0;
+    display: block;
+    height: 100%;
+    background: #66c;
+    /* css3 */
+    background: -webkit-linear-gradient(#66c, #00a);
+    background: -moz-linear-gradient(#66c, #00a);
+    background: -o-linear-gradient(#66c, #00a);
+    background: linear-gradient(#66c, #00a);
+}
+
+div.prog_ink_black {
+    margin: 0;
+    padding: 0;
+    display: block;
+    height: 100%;
+    background: #444;
+    /* css3 */
+    background: -webkit-linear-gradient(#444, #000);
+    background: -moz-linear-gradient(#444, #000);
+    background: -o-linear-gradient(#444, #000);
+    background: linear-gradient(#444, #000);
+}
+
