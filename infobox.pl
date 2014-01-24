@@ -12,124 +12,395 @@ use Time::Local;
 
 # after this amount of time, re-check
 my $TIME = 60;
+# after this amount of time, a computer is set to down ($IS_MASTER)
+my $TIMEISDOWN = 300;
+# after this amount of time, attempt to re-start another computer's script if it's down ($IS_MASTER)
+my $TIMEREINIT = 3600;
 # after this amount of time, command fails
 my $TIMEOUT = 5;
 
-my @now = localtime time;
-my $year = $now[5] + 1900;
-my %mons = ( Jan => '01',
-             Feb => '02',
-             Mar => '03',
-             Apr => '04',
-             May => '05',
-             Jun => '06',
-             Jul => '07',
-             Aug => '08',
-             Sep => '09',
-             Oct => '10',
-             Nov => '11',
-             Dec => '12' );
-
-my $fhost = hostname;
-$fhost =~ m#([^.]+)\..*#;
+## MAIN CODE START
+my $fhost = hostname; $fhost =~ m#([^.]+)\..*#;
 my $host = $1;
 
-# possible alrmdq options...
-# first element: only check status, do not store usage
-# second element: drive to query with `df`
-# third element: user-friendly disk name
-my $alrmdq = { l => [ 'l', 0, '/localdisk', 'localdisk', 0 ],
-                   u => [ 'u', 1, '/home/hoover/*', 'hoover', 1 ],
-                   w => [ 'w', 1, '/home/anon/httpd', 'anon', 0 ],
-                   m => [ 'm', 1, '/var/spool/mail', 'dorito', 0 ] };
+# elements of the data.json output:
+my $name_cache = { };
+my $userFolder_cache = { };
+
+my $os;
+my $cpu;
+my $mem;
+my $users;
+my $disks;
+my $inks;
+my $trays;
 
 # handle command line args...
-# -x host:
-# where x is a mode and host is the desired host (defaults to -C $host, the current host as a computer)
-my $alrmdq_option = 'luwm';
-my $mode = 'computer';
-my %disk_list = ( localdisk => '/localdisk' );
-if ($#ARGV == 1 || $#ARGV == 0) {
-    %disk_list = ();
-    if ($ARGV[0] eq '-u') { # nfs_drive user drive (hoover)
-        $alrmdq_option = 'u';
-        $mode = 'nfs_drive';
-        $disk_list{'hoover/u1'} = '/home/hoover/u1';
-        $disk_list{'hoover/u2'} = '/home/hoover/u2';
-        $disk_list{'hoover/u3'} = '/home/hoover/u3';
-        $disk_list{'hoover/u4'} = '/home/hoover/u4';
-        $disk_list{'hoover/u5'} = '/home/hoover/u5';
-    } elsif ($ARGV[0] eq '-w') { # nfs_drive web drive (anon)
-        $alrmdq_option = 'w';
-        $mode = 'nfs_drive';
-        $disk_list{'anon/http'} = '/home/anon/httpd';
-        $disk_list{'anon/ftp'} = '/home/anon/ftp';
-    } elsif ($ARGV[0] eq '-m') { # nfs_drive mail drive (dorito)
-        $alrmdq_option = 'm';
-        $mode = 'nfs_drive';
-        $disk_list{'dorito'} = '/var/spool/mail';
-    } elsif ($ARGV[0] eq '-p') { # printer (west or inner)
-        $alrmdq_option = '';
-        $mode = 'printer';
-    } elsif ($ARGV[0] eq '-C') { # computer (default: local host, cycle1, cycle2, cycle3, ...)
-        $alrmdq_option = 'luwm';
-        $mode = 'computer';
-        $disk_list{localdisk} = '/localdisk';
-    } elsif ($ARGV[0] eq '-l') { # computer_limited (niagara1, niagara2, utility1)
-        $alrmdq_option = 'uw';
-        $mode = 'computer_limited';
-    } elsif ($ARGV[0] eq '-c') { # camera (camera1, camera2, camera3), UNUSED
-        $alrmdq_option = '';
-        $mode = 'camera';
-        print STDERR "[$host] This mode is unused. Exiting.\n";
-        exit(0);
+# --master/--slave --debug
+my $IS_MASTER = 1;
+$::IS_DEBUG = 0;
+if ($#ARGV >= 0) {
+    foreach my $arg (@ARGV) {
+        if ($arg eq '--master') {
+            $IS_MASTER = 1;
+        } elsif ($arg eq '--slave') {
+            $IS_MASTER = 0;
+        } elsif ($arg eq '--debug') {
+            $::IS_DEBUG = 1;
+        }
     }
-    $host = $ARGV[1] if $#ARGV == 1;
 }
 
-my $disk_qv = [];
-foreach my $chr (split //, $alrmdq_option) {
-    push @$disk_qv, $alrmdq->{$chr};
+
+# static-setup.json
+my $hostObj;
+my $static_setup;
+if (open my $ssfh, '<', 'static-setup.json') {
+    local $/;
+    my $staticObj = decode_json <$ssfh>;
+    close $ssfh;
+    $static_setup = $staticObj;
+} else {
+    plog("[$host] Cannot open static-setup.json for reading: $!\n");
+    exit 1;
 }
 
-$0 = "infobox.pl host=$host mode=$mode see-url=http://csug.rochester.edu/u/nbook/csugnet.html";
+if ($IS_MASTER) {
+    $0 = '--master';
+    $host .= '--master';
+} else {
+    $0 = "--slave";
+}
+$0 = "infobox.pl $0 --see-url=https://csug.rochester.edu/u/nbook/csugnet.html";
 
-print "[$host] infobox daemon init: $0\n";
+plog("[$host] $0\n", 1);
 
-# file setup
-my $file = "data/$host";
-
-unless (-e $file) {
-    open my $fh, '>', $file
-        or do { print STDERR "[$host] Cannot create $file: $!\n"; exit 1; };
-    close $fh;
-    chmod 0644, $file; # make sure webserver can read this file
-    print "[$host] File created.\n";
+if (!daemonize()) {
+    exit;
 }
 
-my $name_dict = { };
-my $userfolder_dict = { };
+if ($IS_MASTER) {
+    # MASTER runs ONCE, and handles all COMPUTER SCRIPTS, and checks PRINTERS, CAMERAS, NFS DRIVESa
+    # INIT_INFOBOX.SH:
+    if (defined $static_setup and exists $static_setup->{hosts}) {
+        foreach my $ss_host (@{$static_setup->{hosts}}) {
+            if ($ss_host->{type} eq 'computer' and not $ss_host->{perminantDown}) {
+                remote_initialize($ss_host->{name});
+            }
+        }
+    }
 
+    while (1) {
+        my $current_time = time;
+        my $last_check_time;
+        my $last_change_time;
+        my $object;
+        my $up_time_s;
+        my $last_check_diff;
+        my $last_change_diff;
+        # check all 
+        if (defined $static_setup and exists $static_setup->{hosts}) {
+            plog("[$host] Requesting status for printers, cameras, and servers.\n");
+            foreach my $ss_host (@{$static_setup->{hosts}}) {
+                $object = readDataLock($ss_host->{name});
+                $last_check_time = $object->{lastCheck};
+                if (defined($object->{lastChange})) {
+                    $last_change_time = abs $object->{lastChange};
+                    $last_change_diff = $current_time - $last_change_time;
+                } else {
+                    $last_change_time = -1;
+                    $last_change_diff = 0;
+                }
+                if (defined($object->{lastCheck})) {
+                    $last_check_time = abs $object->{lastCheck};
+                    $last_check_diff = $current_time - $last_check_time;
+                } else {
+                    $last_check_time = -1;
+                    $last_check_diff = -1;
+                }
+                $up_time_s = $last_change_diff;
+                #print "host $ss_host->{name} up $up_time_s s, check $last_check_diff s ago, change $last_change_diff s ago\n";
+                if ($ss_host->{type} eq 'computer') {
+                    if ($object->{state} eq 'Up' and $last_check_diff > $TIMEISDOWN) {
+                        $last_change_time = $last_check_time + $TIME;
+                        $up_time_s = -($last_check_diff - $TIME);
+                        $object->{lastChange} = $last_change_time;
+                    } else {
+                        unlock('data.json');
+                        next;
+                    }
+                } else {
+                    $up_time_s = 1;
+                }
+
+                if ($ss_host->{type} eq 'printer' and not $ss_host->{perminantDown}) {
+                    # check each printer
+                    ( my $psuccess, my $pstate, my $pmodel, my $inks, my $trays ) =
+                        alrmpjsw($ss_host->{name});
+                    if ($psuccess) {
+                        $object->{prText} = $pstate;
+                        $object->{prModel} = $pmodel;
+                        $object->{inks} = $inks;
+                        $object->{trays} = $trays;
+                    } else {
+                        # down
+                        $up_time_s = -$up_time_s;
+                        if ($object->{state} eq 'Up') {
+                            $object->{lastChange} = $current_time;
+                        }
+                    }
+                }
+
+                if (defined $ss_host->{nfsDisks} and @{$ss_host->{nfsDisks}}) {
+                    # set disks[] of {name,size,used,percent}
+                    my $disks = [];
+                    my @disk_list = @{$ss_host->{nfsDisks}};
+                    my $diskt = alrmcmd("df --output=target,size,used @disk_list");
+                    while ($diskt =~ m#(\S+)\s+(\d+)\s+(\d+)#g) {
+                        (my $path, my $total, my $used) = ($1, $2 + 0, $3 + 0);
+                        push @{$disks}, {
+                            path => $path,
+                            total => $total,
+                            used => $used
+                        };
+                    }
+
+                    $object->{disks} = $disks;
+                }
+
+                if ($up_time_s >= 0) {
+                    $object->{state} = 'Up';
+                    $object->{color} = 'green';
+                } else {
+                    $object->{state} = 'Down';
+                    $object->{color} = 'red';
+                }
+                writeData($ss_host->{name}, $object);
+            }
+        }
+
+        sleep $TIME;
+    }
+} else {
+    # SLAVES check COMPUTERS
+    if (defined $static_setup and exists $static_setup->{hosts}) {
+        foreach my $ss_host (@{$static_setup->{hosts}}) {
+            if (exists $ss_host->{name} and $ss_host->{name} eq $host) {
+                $hostObj = $ss_host;
+            }
+        }
+    }
+    if (not defined $hostObj) {
+        plog("[$host] Cannot find self data in static-setup.json or empty static-setup.json.\n");
+        exit 1;
+    }
+
+    # storing of elements that don't change while this script runs:
+    # OS, CPU, RAM
+    # populate os
+    my $ost = alrmcmd('uname -a');
+    my $sunos = 0;
+    if ($ost =~ /\.fc(\d+)/) {
+        $os = { class => 'fedora', version => $1 + 0, releaseFile => '/etc/fedora-release' };
+    } elsif ($ost =~ /\.el(\d+)/) {
+        $os = { class => 'rhel', version => $1 + 0, releaseFile => '/etc/redhat-release' };
+    } elsif ($ost =~ /^SunOS/) {
+        $sunos = 1;
+        $ost = alrmcmd('cat /etc/release | head -n 1');
+        $ost =~ /Solaris (\d+)/;
+        $os = { class => 'sunos', version => $1 + 0, releaseFile => '/etc/release' };
+    } else {
+        $os = { class => 'unknown', version => 0 };
+    }
+    if (exists $os->{releaseFile}) {
+        my $rel = alrmcmd("cat $os->{releaseFile} | head -n 1");
+        $rel =~ s/^\s+|\s+$//g;
+        $os->{release} = $rel;
+        $os->{displayIcon} = $os->{class}.'.png';
+    }
+
+    # populate cpu
+    if ($sunos) {
+        # set cpu.model, cpu.cores, cpu.threads, and cpu.speed
+        my $cput = alrmcmd('/usr/sbin/prtdiag');
+        my @lines = split /\n/, $cput;
+        foreach my $line (@lines) {
+            if ($line =~ /^(\d+)\s+(\d+)\sMHz\s+(\S+)\s+on-line\s*$/) {
+                (my $n, my $mhz, my $name) = ($1, $2, $3);
+                $cpu->{model} = $name;
+                $cpu->{modelClean} = $name;
+                $cpu->{modelClean} =~ s/SUNW,//;
+                $cpu->{threads} = $n + 1;
+                $cpu->{cores} = ($n + 1) / 4;
+                $cpu->{speed} = $mhz + 0;
+            }
+        }
+        
+        # set mem.total
+        my $memt = alrmcmd('/usr/sbin/prtconf | head -n 2');
+        if ($memt =~ /Memory size: (\d+) Megabytes/) {
+            $mem = { total => $1 * 1024 };
+        }
+    } else {
+        # set cpu.model, cpu.cores, cpu.threads, and cpu.speed
+        my $cput = alrmcmd('cat /proc/cpuinfo');
+        if ($cput =~ /model name\s+:\s+(.*)\s+stepping/) {
+            $cpu->{model} = $1;
+            $cpu->{modelClean} = $cpu->{model};
+            $cpu->{modelClean} =~ s/\bCPU\b|\s@\s|\b[\d.]+\s?[TGM]Hz\b//g;
+            $cpu->{modelClean} =~ s/^\s+(.*?)\s+$/$1/;
+        }
+        if ($cput =~ /siblings\s+:\s+(\d+)/) {
+            $cpu->{threads} = $1 + 0;
+            $cpu->{threads} = 1 if ($cpu->{threads} == 0);
+        } else {
+            $cpu->{threads} = 1;
+        }
+        if ($cput =~ /cpu cores\s+:\s+(\d+)/) {
+            $cpu->{cores} = $1 + 0;
+            $cpu->{cores} = 1 if ($cpu->{cores} == 0);
+        } else {
+            $cpu->{cores} = 1;
+        }
+        if ($cput =~ /cpu MHz\s+:\s+([\d.]+)/) {
+            $cpu->{speed} = $1 + 0;
+        }
+
+        # set mem.total
+        my $memt = alrmcmd('cat /proc/meminfo | head -n 1');
+        if ($memt =~ /MemTotal:\s+(\d+) kB/) {
+            $mem = { total => $1 + 0 };
+        }
+    }
+
+    if (defined $hostObj->{localDisks} and @{$hostObj->{localDisks}}) {
+        # set disks[] of {name,size,used,percent}
+        my @disk_list = @{$hostObj->{localDisks}};
+        my $diskt = alrmcmd("df --output=target,size,used @disk_list");
+        while ($diskt =~ m#(\S+)\s+(\d+)\s+(\d+)#g) {
+            (my $path, my $total, my $used) = ($1, $2 + 0, $3 + 0);
+            push @{$disks}, {
+                path => $path,
+                total => $total,
+                used => $used
+            };
+        }
+    }
+
+    # primary loop
+    while (1) {
+        # modification of data/<host> files, kept around for the previous page to continue to function
+        my $up_time_s = -1;
+
+        my $uptime = alrmcmd('uptime');
+        $uptime =~ m#.*up (?:(\d+) day\(?s?\)?, )?\s?(?:(\d+):)?(\d+)(?: min)?, \s?(\d+) users?.*#;
+        my @up = ( int $1, int $2, int $3 );
+        $up_time_s = $up[0] * 86400 + $up[1] * 3600 + $up[2] * 60;
+
+        plog("[$host] Up for $up[0] days, $up[1] hours, and $up[2] minutes.\n");
+
+        $users = [];
+        my $who = alrmcmd('who');
+        while ($who =~
+m#(\S+)\s+(\S+)\s+(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}|\S{3}\s+\d+\s+\d+:\d{2})(\s+\(\S+\)|).*#g) {
+            my $arr = { netid => $1, tty => $2, loginTimeString => $3, host => $4 };
+            # get date
+            # solaris style:
+            if ($arr->{loginTimeString} =~ m#(\S{3})\s+(\d+)\s+(\d+):(\d{2})#) {
+                $arr->{loginTimeString} = currY().'-'.m2n($1)."-$2 $3:$4:00";
+            }
+            # get timestamp
+            my @login_time = $arr->{loginTimeString} =~
+                m/(\d{4})-(\d{2})-(\d{2})\s(\d{2}):(\d{2})/;
+            $login_time[1]--; # 0-based month value
+            my $login_time_s = timelocal 0,@login_time[4,3,2,1,0];
+            $arr->{loginTime} = $login_time_s;
+            # get host
+            if ($arr->{host} =~ m#\s\((\S+)\)#) {
+                $arr->{host} = $1;
+            }
+            if (length($arr->{host}) == 0) {
+                $arr->{host} = '*';
+            }
+            # check for user folder
+            #if (exists $userFolder_cache->{netid}) {
+            #    $arr->{folderExists} = $userFolder_cache->{netid};
+            #} else {
+                my $uf = 0;
+                if (-d "/u/www/u/$arr->{netid}") {
+                    $uf = 1;
+                }
+                #$userFolder_cache->{netid} = $uf;
+                $arr->{folderExists} = $uf;
+            #}
+            # get real name
+            my $netid = $arr->{netid};
+            if (exists $name_cache->{$netid}) {
+                $arr->{name} = $name_cache->{$netid};
+            } else {
+                my $finger = alrmcmd("finger -ms $arr->{netid}");
+                if ($finger =~ m#$arr->{netid}\s+((?:\S+\s)*\S+)\s+#) {
+                    $name_cache->{$netid} = $arr->{name} = $1;
+                } else {
+                    $arr->{name} = $arr->{netid};
+                }
+                plog("[$host] Unknown user '$arr->{netid}' = '$arr->{name}'\n");
+            }
+            push @$users, $arr;
+        }
+
+        # prepare to write to data.json
+        my $object = {};
+        $object->{os} = $os if defined($os);
+        $object->{cpu} = $cpu if defined($cpu);
+        $object->{mem} = $mem if defined($mem);
+        $object->{users} = $users if defined($users);
+        $object->{disks} = $disks if defined($disks);
+        $object->{state} = 'Up';
+        $object->{color} = 'green';
+        my $current_time = time;
+        my $last_change_s = $current_time - (abs $up_time_s);
+        $object->{lastChange} = $last_change_s;
+        $object->{lastCheck} = $current_time;
+        writeData($host, $object);
+        
+        sleep $TIME;
+    }
+}
+
+
+## SUBROUTINES
+sub remote_initialize {
+    return;
+    my $inithost = shift;
+    my $ssh = "ssh $inithost ".
+    '"cd www/csugnet; PERL5LIB=/u/nbook/perl5/lib/perl5 ./infobox.pl --slave"';
+    plog("[$host] $inithost initializing\n");
+    my $result = alrmcmd($ssh);
+}
+
+# filesystem-based locking
+# LOCK()
 sub lock {
     my $fname = shift;
     open my $fh, '>', "$fname.lock"
         or do { plog("[$host] Cannot create $fname.lock: $!\n"); exit 1; };
     print $fh $host;
     close $fh;
-    plog("[$host] Locked $fname.\n");
+    #plog("[$host] Locked $fname.\n");
 }
 
+# UNLOCK()
 sub unlock {
     my $fname = shift;
     unlink "$fname.lock";
-    plog("[$host] Unlocked $fname.\n");
+    #plog("[$host] Unlocked $fname.\n");
 }
 
-sub lockWrite {
-    local $/;
-    my $fname = shift;
-    my $name = shift;
-    my $value = shift;
+sub readDataLock {
+    my $read_host = shift;
+
+    my $fname = 'data.json';
     while (-e "$fname.lock") {
         open my $fhl, '<', "$fname.lock" or last;
         my $otherhost = <$fhl> if defined($fhl);
@@ -142,17 +413,65 @@ sub lockWrite {
         plog("[$host] Waiting for lock held by $otherhost\n");
         sleep 1;
     }
+
     lock($fname);
-    open my $fh, '<', $fname
-        or do { plog("[$host] Cannot open $fname for reading: $!\n"); unlock($fname); exit 1; };
-    my $oldjson = decode_json <$fh>;
-    close $fh;
-    foreach my $host (@{$oldjson->{hosts}}) {
-        if ($host->{name} eq $name) {
-            $host = $value;
+    my $jsonObj;
+    if (open my $fh, '<', $fname) {
+        local $/;
+        $jsonObj = decode_json <$fh>;
+        close $fh;
+    } else {
+        plog("[$host] Cannot open $fname for reading: $!\n");
+        unlock($fname);
+        exit 1;
+    }
+    foreach my $h (@{$jsonObj->{hosts}}) {
+        if ($h->{name} eq $read_host) {
+            return $h;
         }
     }
-    my $data = encode_json $oldjson;
+    return {};
+}
+
+# write an object to a file as JSON using lock/unlock
+sub writeData {
+    my $write_host = shift;
+    my $object = shift;
+
+    my $fname = 'data.json';
+    while (-e "$fname.lock") {
+        if (open my $fhl, '<', "$fname.lock") {
+            my $otherhost = <$fhl>;
+            close $fhl;
+            if ($host eq $otherhost) {
+                # held by self or no .lock contents
+                unlink "$fname.lock";
+                last;
+            }
+            plog("[$host] Waiting for lock held by $otherhost\n");
+            sleep 1;
+        } else {
+            last;
+        }
+    }
+    lock($fname);
+    my $jsonObj;
+    if (open my $fh, '<', $fname) {
+        local $/;
+        $jsonObj = decode_json <$fh>;
+        close $fh;
+    } else {
+        plog("[$host] Cannot open $fname for reading: $!\n");
+        unlock($fname);
+        exit 1;
+    }
+    $object->{name} = $write_host;
+    foreach my $hostObj (@{$jsonObj->{hosts}}) {
+        if ($hostObj->{name} eq $write_host) {
+            $hostObj = $object;
+        }
+    }
+    my $data = encode_json $jsonObj;
     open my $fhw, '>', $fname
         or do { plog("[$host] Cannot open $fname for writing: $!\n"); unlock($fname); exit 1; };
     print $fhw $data;
@@ -160,69 +479,15 @@ sub lockWrite {
     unlock($fname);
 }
 
+# solaris date conversion
 sub m2n {
+    my %mons = ( Jan => '01', Feb => '02', Mar => '03', Apr => '04', May => '05', Jun => '06',
+        Jul => '07', Aug => '08', Sep => '09', Oct => '10', Nov => '11', Dec => '12' );
     return $mons{shift @_};
 }
-
-sub kb2h {
-    my $k = shift @_;
-    my $m = $k / 1024;
-    my $g = $m / 1024;
-    my $t = $g / 1024;
-    if ($k < 1024) {
-        return $k.' KB';
-    } elsif ($m < 1024) {
-        return sprintf('%.1f', $m).'MB';
-    } elsif ($g < 1024) {
-        return sprintf('%.1f', $g).'GB';
-    } else {
-        return sprintf('%.1f', $t).'TB';
-    }
-}
-
-sub perc {
-    my $u = shift @_;
-    my $t = shift @_;
-    return sprintf('%.1f', ($u / $t) * 100).'%';
-}
-
-# returns the disk statistics for a partition with a timeout
-sub alrmdq {
-    my $arr = shift;
-    my $totarg = '--total ';
-    my $src = 'total';
-    my $dst = '';
-    my $result = '';
-    if ($mode eq 'computer_limited' or not $arr->[4]) {
-        $totarg = '';
-        $src = '';
-        $dst = $arr->[2];
-    }
-
-    # hack to make all of /home/hoover/* show up
-    if ($arr->[3] eq 'hoover' and $mode eq 'nfs_drive') {
-        alrmcmd('ls /u/');
-    }
-
-    # actually get disk stats for disk $arr[2]
-    my $df = alrmcmd("df -ak $totarg$arr->[2]");
-    # if valid line matching 
-    if ($df =~ m#$src\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)%\s+$dst#) {
-        if ($arr->[1] and not $mode eq 'nfs_drive') {
-            $result = "$arr->[3],1,$arr->[2];";
-        } else {
-            my @parts = ( int $1, int $2, int $3, int $4 );
-            my $total = kb2h($parts[0]);
-            my $used = kb2h($parts[1]);
-            my $avail = kb2h($parts[2]);
-            my $percent = perc($parts[1], $parts[0]);
-            $result = "$arr->[3],1,$arr->[2],$total,$used,$avail,$percent;";
-        }
-    } else {
-        $result = "$arr->[3],0;";
-    }
-    $arr->[5] = $result;
-    return $result;
+sub currY {
+    my @now = localtime time;
+    return $now[5] + 1900;
 }
 
 # executes a shell command with a timeout
@@ -316,21 +581,39 @@ sub alrmpjs {
 
 # scrapes the webpage for the printer for ink and paper info with a timeout
 sub alrmpjsw {
-    my $inklvl = {};
+    my $prhost = shift;
+    my $success = 1;
+    my $state = '';
+    my $model = '';
+    my $inklvl = [];
     my $pprlvl = [];
     
-    my $web_content = alrmcmd("curl -s http://$host/hp/device/this.LCDispatcher");
+    my $web_content = alrmcmd("curl -sL http://$prhost/hp/device/this.LCDispatcher");
     
     if (length($web_content) > 0) {
+        if ($web_content =~ /padding-bottom: \.7em;" >([^<]+)/) {
+            $state = $1;
+        } else {
+            $success = 0;
+        }
+        if ($web_content =~ /hpBannerTextBig">\s*([^<]+)/) {
+            $model = $1;
+        } else {
+            $success = 0;
+        }
         if ($web_content =~ /(\S+) Cartridge&nbsp;&nbsp;(\d+)%/) {
-            $inklvl->{$1} = $2;
+            push @$inklvl, { color => $1, amount => $2 + 0 };
+        } else {
+            $success = 0;
         }
         while ($web_content =~ /Tray (\d+)[^&]+&nbsp;&nbsp;(\w+)/g) {
-            push @$pprlvl, $2;
+            push @$pprlvl, { index => $1 + 0, state => $2 };
         }
+    } else {
+        $success = 0;
     }
 
-    return ( $inklvl, $pprlvl );
+    return ( $success, $state, $model, $inklvl, $pprlvl );
 }
 
 # compare for sort on pjstatus output, where lines starting with 'STATUS' are placed first
@@ -343,7 +626,9 @@ sub cmp_pjkeys {
 }
 
 
+# fork from the parent 
 sub daemonize {
+    return 1 if ($::IS_DEBUG);
     my $pid = fork;
     if ($pid < 0) {
         print STDERR "[$host] Could not separate from shell because fork() failed: $!\n";
@@ -359,322 +644,10 @@ sub daemonize {
 
 sub plog {
     my $out = shift;
+    my $print_to_shell = shift;
+    print $out if ($print_to_shell or $::IS_DEBUG);
     open my $fh, '>>', "data/$host.log" or return;
     print $fh $out;
     close $fh;
 }
-
-if (!daemonize()) {
-    plog("[$host] infobox daemon init: $0\n");
-}
-
-sub parseSession {
-    my $tty = shift;
-    my $host = shift;
-    my $result = { type => 'unknown', fromParse => $host, numeric => -1 };
-    if ($tty =~ m#pts/(\d+)#) {
-        if (substr($host, 0, 1) eq ':') {
-            $result->{type} = 'screen';
-            $result->{numeric} = $1 + 0;
-            if ($host =~ m#:([^:]+):S\.(\d+)#) {
-                $result->{screenNumeric} = $2 + 0;
-                $result->{fromParse} = parseSession($1, '*');
-            }
-        } else {
-            $result->{type} = 'ssh';
-            $result->{numeric} = $1 + 0;
-        }
-    } elsif ($tty =~ m#tty(\d+)#) {
-        $result->{type} = 'tty';
-        $result->{numeric} = $1 + 0;
-    } elsif ($tty =~ m#:(\d+)#) {
-        $result->{type} = 'login';
-        $result->{numeric} = $1 + 0;
-    } elsif ($tty =~ m#rdesktop#) {
-        $result->{type} = 'remote';
-        $result->{numeric} = 0;
-        if ($host =~ m#:([^:]+)#) {
-            my $fromParse = parseSession($1, '*');
-            $result->{fromParse} = $fromParse;
-        }
-    }
-    return $result;
-}
-
-# elements of the json output:
-my $os;
-my $cpu;
-my $mem;
-my $users;
-my $disks;
-
-# storing of elements that don't change while this script runs:
-# OS, CPU, RAM
-if ($mode eq 'computer' or $mode eq 'computer_limited') {
-    # populate os
-    my $ost = alrmcmd('uname -a');
-    my $sunos = 0;
-    if ($ost =~ /\.fc(\d+)/) {
-        $os = { class => 'fedora', version => $1 + 0, releaseFile => '/etc/fedora-release' };
-    } elsif ($ost =~ /\.el(\d+)/) {
-        $os = { class => 'rhel', version => $1 + 0, releaseFile => '/etc/redhat-release' };
-    } elsif ($ost =~ /^SunOS/) {
-        $sunos = 1;
-        $ost = alrmcmd('cat /etc/release | head -n 1');
-        $ost =~ /Solaris (\d+)/;
-        $os = { class => 'sunos', version => $1 + 0, releaseFile => '/etc/release' };
-    } else {
-        $os = { class => 'unknown', version => 0 };
-    }
-    if (exists $os->{releaseFile}) {
-        my $rel = alrmcmd("cat $os->{releaseFile} | head -n 1");
-        $rel =~ s/^\s+|\s+$//g;
-        $os->{release} = $rel;
-        $os->{displayIcon} = $os->{class}.'.png';
-    }
-
-    # populate cpu
-    if ($sunos) {
-        # set cpu.model, cpu.cores, cpu.threads, and cpu.speed
-        my $cput = alrmcmd('/usr/sbin/prtdiag');
-        my @lines = split /\n/, $cput;
-        foreach my $line (@lines) {
-            if ($line =~ /^(\d+)\s+(\d+)\sMHz\s+(\S+)\s+on-line\s*$/) {
-                (my $n, my $mhz, my $name) = ($1, $2, $3);
-                $cpu->{model} = $name;
-                $cpu->{modelClean} = $name;
-                $cpu->{modelClean} =~ s/SUNW,//;
-                $cpu->{threads} = $n + 1;
-                $cpu->{cores} = ($n + 1) / 4;
-                $cpu->{speed} = $mhz + 0;
-            }
-        }
-        
-        # set mem.total
-        my $memt = alrmcmd('/usr/sbin/prtconf | head -n 2');
-        if ($memt =~ /Memory size: (\d+) Megabytes/) {
-            $mem = { total => $1 * 1024 };
-        }
-    } else {
-        # set cpu.model, cpu.cores, cpu.threads, and cpu.speed
-        my $cput = alrmcmd('cat /proc/cpuinfo');
-        if ($cput =~ /model name\s+:\s+(.*)\s+stepping/) {
-            $cpu->{model} = $1;
-            $cpu->{modelClean} = $cpu->{model};
-            $cpu->{modelClean} =~ s/\bCPU\b|\s@\s|\b[\d.]+\s?[TGM]Hz\b//g;
-            $cpu->{modelClean} =~ s/^\s+(.*?)\s+$/$1/;
-        }
-        if ($cput =~ /siblings\s+:\s+(\d+)/) {
-            $cpu->{threads} = $1 + 0;
-            $cpu->{threads} = 1 if ($cpu->{threads} == 0);
-        } else {
-            $cpu->{threads} = 1;
-        }
-        if ($cput =~ /cpu cores\s+:\s+(\d+)/) {
-            $cpu->{cores} = $1 + 0;
-            $cpu->{cores} = 1 if ($cpu->{cores} == 0);
-        } else {
-            $cpu->{cores} = 1;
-        }
-        if ($cput =~ /cpu MHz\s+:\s+([\d.]+)/) {
-            $cpu->{speed} = $1 + 0;
-        }
-
-        # set mem.total
-        my $memt = alrmcmd('cat /proc/meminfo | head -n 1');
-        if ($memt =~ /MemTotal:\s+(\d+) kB/) {
-            $mem = { total => $1 + 0 };
-        }
-    }
-}
-
-if (%disk_list) {
-    # set disks[] of {name,size,used,percent}
-    my @disk_list_v = values %disk_list;
-    my $diskt = alrmcmd("df --output=target,size,used @disk_list_v");
-    while ($diskt =~ m#(\S+)\s+(\d+)\s+(\d+)#g) {
-        (my $path, my $total, my $used) = ($1, $2 + 0, $3 + 0);
-        my $name = $path;
-        while ((my $key, my $value) = each %disk_list) {
-            if ($value eq $path) {
-                $name = $key;
-                last;
-            }
-        }
-        push @{$disks}, {
-            name => $name,
-            path => $path,
-            total => $total,
-            used => $used
-        };
-    }
-}
-
-while (1) {
-    # modification of data/<host> files, kept around for the previous page to continue to function
-    my $up_time_s = -1;
-    if ($mode eq 'computer' or $mode eq 'computer_limited') {
-        my $uptime = alrmcmd('uptime');
-        $uptime =~ m#.*up (?:(\d+) day\(?s?\)?, )?\s?(?:(\d+):)?(\d+)(?: min)?, \s?(\d+) users?.*#;
-        my @up = ( int $1, int $2, int $3 );
-        $up_time_s = $up[0] * 86400 + $up[1] * 3600 + $up[2] * 60;
-
-        plog("[$host] Up for $up[0] days, $up[1] hours, and $up[2] minutes.\n");
-        my $changes = 0;
-
-        my $new_users = [];
-        my $who = alrmcmd('who');
-        while ($who =~ m#(\S+)\s+(\S+)\s+(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}|\S{3}\s+\d+\s+\d+:\d{2})(\s+\(\S+\)|).*#g) {
-            my $arr = { netid => $1, tty => $2, loginTimeString => $3, host => $4 };
-            # get date
-            # niagara style:
-            if ($arr->{loginTimeString} =~ m#(\S{3})\s+(\d+)\s+(\d+):(\d{2})#) {
-                $arr->{loginTimeString} = "$year-".m2n($1)."-$2 $3:$4:00";
-            }
-            # get timestamp
-            my @login_time = $arr->{loginTimeString} =~
-                m/(\d{4})-(\d{2})-(\d{2})\s(\d{2}):(\d{2})/;
-            $login_time[1]--;
-            my $login_time_s = timelocal 0,@login_time[4,3,2,1,0];
-            $arr->{loginTime} = $login_time_s;
-            # get host
-            if ($arr->{host} =~ m#\s\((\S+)\)#) {
-                $arr->{host} = $1;
-            }
-            if (length($arr->{host}) == 0) {
-                $arr->{host} = '*';
-            }
-            # parse host
-            $arr->{session} = parseSession($arr->{tty}, $arr->{host});
-            # check for user folder
-            if (exists $userfolder_dict->{netid}) {
-                $arr->{folderExists} = $userfolder_dict->{netid};
-            } else {
-                my $uf = 0;
-                if (-d "/u/www/u/$arr->{netid}") {
-                    $uf = 1;
-                }
-                $userfolder_dict->{netid} = $uf;
-                $arr->{folderExists} = $uf;
-            }
-            # get real name
-            my $netid = $arr->{netid};
-            if (exists $name_dict->{$netid}) {
-                $arr->{name} = $name_dict->{$netid};
-            } else {
-                my $finger = alrmcmd("finger -ms $arr->{netid}");
-                if ($finger =~ m#$arr->{netid}\s+((?:\S+\s)*\S+)\s+#) {
-                    $name_dict->{$netid} = $arr->{name} = $1;
-                } else {
-                    $arr->{name} = $arr->{netid};
-                }
-                plog("[$host] Unknown user '$arr->{netid}' = '$arr->{name}'\n");
-            }
-            push @$new_users, $arr;
-        }
-
-        my $disks_str = '';
-        foreach my $disk (@$disk_qv) {
-            if ($disk->[1]) {
-                if ($#$disk < 5) {
-                    plog("[$host] Querying $disk->[3] status ($disk->[2])\n");
-                    $disks_str .= alrmdq($disk);
-                } else {
-                    $disks_str .= $disk->[5];
-                }
-            } else {
-                plog("[$host] Querying $disk->[3] size and usage ($disk->[2])\n");
-                $disks_str .= alrmdq($disk);
-            }
-        }
-        
-        my $user_count = $#{$users} + 1;
-        
-        #print "Size: $blocks\nUsed: $used\nAvail: $avail\nPercent: $percent\n";
-
-        $changes++ if $#{$new_users} != $#{$users};
-        $users = $new_users;
-
-        if ($changes > 0) {
-            plog("[$host] There are ".($#{$users}+1)." users on now.\n");
-        }
-
-        if (open my $fh, '>', $file) {
-            print $fh "$up[0]:$up[1]:$up[2]:$disks_str:$os->{class}:$os->{version}:$os->{release}\n";
-            foreach my $user (@{$users}) {
-                print $fh "$user->{netid} $user->{tty} $user->{loginTimeString} ".
-                          "$user->{host} $user->{name}\n";
-            }
-            close $fh;
-            plog("[$host] Written $file.\n");
-        } else {
-            plog("[$host] Cannot open $file: $!\n");
-        }
-    } elsif ($mode eq 'nfs_drive') {
-        plog("[$host] Requesting status/size for $#$disk_qv disks.\n");
-        my $disks = '';
-        foreach my $disk (@$disk_qv) {
-            $disks .= alrmdq($disk);
-        }
-
-        if (open my $fh, '>', $file) {
-            print $fh "0:0:0:netdisk:0:Network Drive\n";
-            close $fh;
-            plog("[$host] Written $file.\n");
-        } else {
-            plog("[$host] Cannot open $file: $!\n");
-        }
-    } elsif ($mode eq 'printer') {
-        plog("[$host] Requesting status/ink/paper for printer.\n");
-        my %vars;
-        ( my $online, my $status ) = alrmpjs($host);
-        ( my $inklvl, my $pprlvl ) = alrmpjsw($host);
-        my $i = 0;
-        foreach my $s (@$status) {
-            $i++;
-            $vars{"STATUS_$i"} = $s;
-        }
-        foreach my $s (keys %$inklvl) {
-            $vars{'INK_'.uc $s} = $inklvl->{$s}.'%';
-        }
-        $i = 0;
-        foreach my $s (@$pprlvl) {
-            $i++;
-            $vars{'TRAY_'.$i} = $s;
-        }
-
-        if (open my $fh, '>', $file) {
-            print $fh "0:0:0:$online:hpp:0:HP Printer\n";
-            foreach my $key (sort cmp_pjkeys keys %vars) {
-                print $fh "$key=$vars{$key}\n";
-            }
-            close $fh;
-            plog("[$host] Written $file.\n");
-        } else {
-            plog("[$host] Cannot open $file: $!\n");
-        }
-    }
-
-    # prepare to write to data.json
-    my $current_time = time;
-    my $last_change_s = $current_time - $up_time_s;
-    my $object = {};
-    $object->{name} = $host;
-    $object->{state} = 'Up';
-    $object->{color} = 'green';
-    $object->{lastCheck} = $current_time;
-    if ($up_time_s >= 0) {
-        $object->{lastChange} = $last_change_s;
-        $object->{upTime} = $up_time_s;
-    }
-    $object->{os} = $os if defined($os);
-    $object->{cpu} = $cpu if defined($cpu);
-    $object->{mem} = $mem if defined($mem);
-    $object->{users} = $users if defined($users);
-    $object->{disks} = $disks if defined($disks);
-    lockWrite('data.json', $host, $object);
-    
-    sleep $TIME;
-}
-
 

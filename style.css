@@ -1,3 +1,7 @@
+body {
+    margin-bottom: 20em;
+}
+
 h1, h2, h3, h4, h5, h6 {
     margin: .25em auto;
 }
@@ -15,7 +19,7 @@ div.layout_container {
 div.layout {
     display: inline-block;
     margin: .5em;
-    border: .1em solid #cccccc;
+    border: .1em solid #ccc;
     vertical-align: middle;
     text-align: center;
 }
@@ -102,9 +106,9 @@ div#infobox {
     left: auto;
     bottom: auto;
     right: auto;
-    width: 600px;
+    width: 800px;
     padding: 1em;
-    margin: 1em 0 3em;
+    margin: 0;
     color: #000;
     background: #999; /* default background for browsers without gradient support */
     /* css3 */
@@ -125,9 +129,8 @@ div#infobox_arrow {
     top: auto; /* value = - border-top-width - border-bottom-width */
     right: auto; /* controls horizontal position */
     bottom: -15px;
-    left: 10px;
-    border-width: 1em 1em 0; /* vary these values to change the angle of the vertex */
-    border-color: #999 transparent;
+    border-width: 1.2em; /* vary these values to change the angle of the vertex */
+    border-color: transparent transparent #eee transparent;
     /* reduce the damage in FF3.0 */
     width: 0;
     height: 0;
@@ -198,20 +201,32 @@ div.prog {
     display: inline-block;
     width: 100%;
     height: 1.2em;
-    background: #ccc;
+    background: #ddd;
+    border: 1px solid black;
 }
 
 div.prog b {
+    display: inline-block;
     overflow: none;
     white-space: nowrap;
-    background: rgba(204,204,204,.5);
+    width: 7em;
+    height: 1.2em;
+    background: rgba(221,221,221,.75);
+    /* css3 */
+    background: -webkit-linear-gradient(left, rgba(221,221,221,.75), transparent);
+    background: -moz-linear-gradient(right, rgba(221,221,221,.75), transparent);
+    background: -o-linear-gradient(right, rgba(221,221,221,.75), transparent);
+    background: linear-gradient(to right, rgba(221,221,221,.75), transparent);
 }
 
-div.prog_usage {
+div.prog div {
     margin: 0;
     padding: 0;
     display: block;
     height: 100%;
+}
+
+div.prog_blue {
     background: #66c;
     /* css3 */
     background: -webkit-linear-gradient(#66c, #00a);
@@ -220,16 +235,45 @@ div.prog_usage {
     background: linear-gradient(#66c, #00a);
 }
 
-div.prog_ink_black {
-    margin: 0;
-    padding: 0;
-    display: block;
-    height: 100%;
+div.prog_black {
     background: #444;
     /* css3 */
     background: -webkit-linear-gradient(#444, #000);
     background: -moz-linear-gradient(#444, #000);
     background: -o-linear-gradient(#444, #000);
     background: linear-gradient(#444, #000);
+}
+
+div.prog_magenta {
+    background: #c6c;
+    /* css3 */
+    background: -webkit-linear-gradient(#c6c, #a0a);
+    background: -moz-linear-gradient(#c6c, #a0a);
+    background: -o-linear-gradient(#c6c, #a0a);
+    background: linear-gradient(#c6c, #a0a);
+}
+
+div.prog_yellow {
+    background: #cc6;
+    /* css3 */
+    background: -webkit-linear-gradient(#cc6, #aa0);
+    background: -moz-linear-gradient(#cc6, #aa0);
+    background: -o-linear-gradient(#cc6, #aa0);
+    background: linear-gradient(#cc6, #aa0);
+}
+
+div.prog_cyan {
+    background: #6cc;
+    /* css3 */
+    background: -webkit-linear-gradient(#6cc, #0aa);
+    background: -moz-linear-gradient(#6cc, #0aa);
+    background: -o-linear-gradient(#6cc, #0aa);
+    background: linear-gradient(#6cc, #0aa);
+}
+
+pre {
+    display: inline-block;
+    vertical-align: top;
+    margin: 0;
 }
 

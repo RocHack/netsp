@@ -129,6 +129,9 @@
                     }
                     host.fullName = domain.replace('*', host.name);
                     host.fullIP = mkIP(ip, host.ip);
+                    host.state = 'Loading';
+                    host.color = '#aa0';
+                    host.ready = false;
                     hosts.push(host);
                 }
             }
@@ -191,8 +194,9 @@
                 hosts.push(host);
             } else {
                 copyJSONElements(host, hostsObj,
-                    ['state','color','lastChange','lastCheck','os','cpu','mem','users',
-                     'disks','path','jobs','jobStatus','inks','trays']);
+                    ['state','color','lastChange','lastCheck','os','cpu','mem',
+                     'users','disks','prText','prModel','inks','trays']);
+                hostsObj.ready = true;
             }
 
             $('#status_'+host.name).text(host.state);
@@ -320,11 +324,81 @@
         return unescape(encodeURIComponent(s));
     }
 
-    function progressBar(percent) {
-        return'<div class="prog"><div class="prog_usage" ' +
+    function progressBar(color, percent, decPts) {
+        return'<div class="prog"><div class="prog_' + color + '" ' +
             'style="width: ' + (percent * 100).toFixed(1) + '%;">' +
-            b((percent * 100).toFixed(2) + ' %') +
+            b((percent * 100).toFixed(decPts) + ' %') +
             '</div></div>';
+    }
+
+    function doMatchSession(M, toMatch, p) {
+        return M.map(function(obj) {
+            if (obj.match.test(toMatch)) {
+                return {
+                    display: p != null ? p : toMatch.replace(obj.match, obj.display),
+                    parentDisplay: toMatch.parentDisplay
+                };
+            } else {
+                return null;
+            }
+        }).reduce(function(p,c) {
+            return p == null ? c : p;
+        });
+    }
+
+    function parseSession(tty, host) {
+        var ttyTypeM = [
+        { match: /tty(\d+)/, on: 'ctrl+alt+f$1' },
+        { match: /pts\/(\d+)/, on: 'ssh', as: 'pts/$1' },
+        { match: /:(\d+)\.(\d+)/, on: 'graphical login $1 (port $2)' },
+        { match: /:(\d+)/, on: 'graphical login $1' },
+        { match: /dtremote/, on: 'graphical login', noOverrideOn: true },
+        { match: /(.*)/, on: 'unknown' }
+        ];
+        var displayObj = { order: ['on','as','from','via'] };
+        ttyTypeM.map(function (obj) {
+            if (obj.match.test(tty)) {
+                if (!('on' in displayObj)) {
+                    displayObj.on = tty.replace(obj.match, obj.on);
+                    if ('as' in obj) {
+                        displayObj.as = tty.replace(obj.match, obj.as);
+                    }
+                }
+            }
+        });
+
+        var hostTypeM = [
+        { match: /\*/, from: '' },
+        { match: /^([^:]*):tty(\d+):S\.(\d+)$/, on: 'screen $3', from: 'ctrl+alt+f$2', via: '$1' },
+        { match: /^([^:]*):(\S+):S\.(\d+)$/, on: 'screen $3', from: '$2', via: '$1' },
+        { match: /^([^:]*):(\d+)\.(\d+)$/, from: 'graphical server $2 (port $3)', via: '$1',
+            on: 'terminal', as: '' },
+        { match: /^([^:]*):(\d+)$/, from: 'graphical server $2', via: '$1',
+            on: 'terminal', as: '' },
+        { match: /(.*)/, from: 'host $1' }
+        ];
+        hostTypeM.map(function (obj) {
+            if (obj.match.test(host)) {
+                if (!('from' in displayObj)) {
+                    (['from','via','on','as']).map(function (fieldName) {
+                        if (fieldName in obj && !('noOverrideOn' in displayObj)) {
+                            displayObj[fieldName] = host.replace(obj.match, obj[fieldName]);
+                        }
+                    });
+                }
+            }
+        });
+        if (/^[^:]+:\S+(?::(?:\d+|S)(?:\.\d+)?)?$/.test(host)) {
+            displayObj.on = 'remote '+displayObj.on;
+        }
+
+        return displayObj.order.map(function (fieldName) {
+            if (fieldName in displayObj && displayObj[fieldName] != '') {
+                return fieldName + ' ' + b(displayObj[fieldName]);
+            } else {
+                return '';
+            }
+        }).join(' ');
     }
 
     // given a host object, return the HTML to insert
@@ -335,7 +409,13 @@
             return null;
         }
         var lines = [];
-        lines.push('Host: ' + b(host.fullName, /^([^.]+)/) + ' (' + b(host.fullIP, /([\d]+)$/) + ')');
+        //console.log(host);
+        lines.push('Host: ' + ('webServer' in host && host.webServer ?
+                '<a href="http://' + host.fullName + '/">' +
+                b(host.fullName, /^([^.]+)/) + '</a>' :
+                b(host.fullName, /^([^.]+)/)) + ' (' + b(host.fullIP, /([\d]+)$/) +
+                ')' + ('externalAccess' in host && host.externalAccess ?
+                ' (accessible outside the network)' : ''));
         if ('alias' in host) {
             var es = host.alias.length == 1 ? '' : 'es';
             var aliases = '';
@@ -364,8 +444,8 @@
         if ('os' in host) {
             lines.push('Operating system: ' +
                     ('displayIcon' in host.os ?
-                     img('csugnet/' + host.os.displayIcon, host.os.class, 12, 12) + ' ' : '') +
-                    b(dutf8(host.os.release)));
+                     img('csugnet/img/' + host.os.displayIcon, host.os.class, 12, 12) + ' ' : '') +
+                     b(dutf8(host.os.release)));
         }
 
         if ('cpu' in host && host.cpu.modelClean && host.cpu.speed && host.cpu.threads) {
@@ -387,7 +467,32 @@
                 host.disks.map(function(disk) {
                     return '<li>' + b(disk.path) + ' is mounted with ' +
                         bytes(disk.used, 'k') + ' in use of ' + bytes(disk.total, 'k') +
-                        '<br/>' + progressBar(disk.used / disk.total) + '</li>';
+                        '<br/>' + progressBar('blue', disk.used / disk.total, 2) + '</li>';
+                }).join('') + '</ul>');
+        }
+
+        if ('prModel' in host) {
+            lines.push('Printer Model: ' + 
+                     img('csugnet/img/hp.png', 'hp', 12, 12) + ' ' +
+                     b(dutf8(host.prModel)));
+        }
+
+        if ('prText' in host) {
+            lines.push('Status: <pre>' + b(dutf8(host.prText.split('\n').join('<br/>'))) + '</pre>');
+        }
+
+        if ('inks' in host) {
+            lines.push('Ink cartridges: ' + host.inks.length + ' installed<ul>' +
+                host.inks.map(function(ink) {
+                    return '<li>' + b(ink.color) + ' cartridge<br/>' +
+                    progressBar(ink.color.toLowerCase(), ink.amount / 100, 0) + '</li>';
+                }).join('') + '</ul>');
+        }
+
+        if ('trays' in host) {
+            lines.push('Paper trays: ' + host.trays.length + ' installed<ul>' +
+                host.trays.map(function(tray) {
+                    return '<li>Tray ' + b(tray.index) + ' is ' + b(tray.state) + '</li>';
                 }).join('') + '</ul>');
         }
 
@@ -395,33 +500,9 @@
             var sess = '';
             var sessList = [];
             var lastSess = null;
-            function sessionParse(sObj) {
-                var s = '';
-                switch (sObj.type) {
-                    case 'ssh':
-                        s = '<b>ssh</b> as <b>pts/' + sObj.numeric + '</b>';
-                        break;
-                    case 'tty':
-                        s = '<b>ctrl+alt+f' + sObj.numeric + '</b>';
-                        break;
-                    case 'login':
-                        s = '<b>graphical login ' + sObj.numeric + '</b>';
-                        break;
-                    case 'remote':
-                        s = '<b>remote desktop</b>';
-                        break;
-                    case 'screen':
-                        s = '<b>screen ' + sObj.screenNumeric + '</b>' +
-                            ' as <b>pts/' + sObj.numeric + '</b>' +
-                            ' from ' + sessionParse(sObj.fromParse);
-                        break;
-                }
-                return s + ((sObj.fromParse == '*' ||
-                    sObj[0] == ':' ||
-                    typeof sObj.fromParse == 'object') ? '' :
-                    ' from <b>' + sObj.fromParse + '</b>');
-            }
-            host.users.map(function(user) {
+            host.users.sort(function(a,b) {
+                return a.netid.localeCompare(b.netid);
+            }).map(function(user) {
                 var currSess = {
                     name: user.netid,
                     sessions: [],
@@ -438,8 +519,8 @@
                     }
                 }
                 currSess.sessions.push(
-                    'on ' + sessionParse(user.session) + '<br/>' +
-                    'since ' + dt(new Date(user.loginTime*1000)));
+                    parseSession(user.tty, user.host) +
+                    ' since ' + dt(new Date(user.loginTime*1000)));
 
                 lastSess = currSess;
             });
@@ -461,9 +542,9 @@
             lastSess = null;
         }
 
-        if ('path' in host) {
+        if ('webLocation' in host) {
             lines.push('Most recent snapshot:<br/>' +
-                    img(host.path, host.fullName + ' snapshot', 352, 240));
+                    img(host.webLocation, host.fullName + ' snapshot', 352, 240));
         }
 
         var html = '<h2>Info for ' + host.type.displayName + ' ' + host.name + '</h2><ul>';
@@ -522,6 +603,9 @@
             var off = current.offset();
             var hostName = current.attr('id').substr(5);
             var host = getHostByName(hostName);
+            if (!host.ready) {
+                return;
+            }
             var parsed = null;
             if (host == null) {
                 parsed = '<h3 style="color:red">Host "' + hostName + '" does not exist.</h3>';
@@ -540,8 +624,9 @@
             if (w + off.left > current.parent().width() + current.parent().offset().left) {
                 pushRight = off.left + w - current.parent().offset().left - current.parent().width();
             }
-            $('#infobox').offset({ top: off.top - h - 20, left: off.left - pushRight });
-            $('#infobox_arrow').show().offset({ top: $('#infobox').offset().top + h, left: off.left + current.width() / 3});
+            $('#infobox').offset({ top: off.top + current.height() + 20, left: off.left - pushRight });
+            $('#infobox_arrow').show().offset({ top: $('#infobox').offset().top - $('#infobox_arrow').outerHeight(),
+                left: off.left + current.width() / 3});
             //} else { else: the ajax is currently working
         });
         $('#infobox, #infobox_arrow').on('mouseover', function () {
