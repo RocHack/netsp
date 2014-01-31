@@ -141,7 +141,7 @@
                         var host = grid[String([r,c])];
                         rawLayout += '<div class="layout '+
                             host.type.layoutName+'" id="'+
-                            'host_'+host.name+'"><p>' +
+                            'host_'+host.name+'"><p data-color="yellow" style="color:#aa0">' +
                             host.name +
                             (('alias' in host) ? '<br/><small>' + host.alias.toString() +
                              '</small>' : '') + '<br/><small id="status_' + 
@@ -188,6 +188,7 @@
                 'data.hosts['+i+']','data.json')) {
                 return false;
             }
+            
 
             var hostsObj = getHostByName(host.name);
             if (hostsObj == null) {
@@ -199,9 +200,22 @@
                 hostsObj.ready = true;
             }
 
+            host.color = (host.state == 'Up' ? 'green' :
+                          (host.state == 'Down' ? 'red' : '#aa0'));
             $('#status_'+host.name).text(host.state);
-            if ('color' in host) {
-                $('#host_'+host.name+' p').css({'color':host.color});
+            var ctx = $('#host_'+host.name+' p');
+            if ('icon' in host) {
+                //.html(img(host.icon + '.png', host.icon, 12, 12) + ' ' + host.name);
+            } else {
+                //.text(host.name);
+            }
+            var colorChanged = (ctx.attr('data-color') != host.color);
+            ctx.attr('data-color',host.color);
+            if (colorChanged) {
+                ctx.animate({'opacity':.5},500,'swing', function () {
+                    $(this).css({'color':$(this).attr('data-color')});
+                    $(this).animate({'opacity':1},500,'swing');
+                });
             }
         }
 
@@ -239,7 +253,8 @@
         var w = dateObj.getDay();
         var ws = (['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'])[w % 7];
         var n = dateObj.getMonth();
-        var ns = ' ' + (['January','February','March','April','May','June','July','August','September','October','November','December'])[n % 12];
+        var ns = ' ' + (['January','February','March','April','May','June',
+                         'July','August','September','October','November','December'])[n % 12];
         var y = dateObj.getFullYear();
         var ys = ' ' + y.toString();
         if (y == now.getFullYear()) {
@@ -408,6 +423,10 @@
             'host', 'data.json')) {
             return null;
         }
+
+        host.color = (host.state == 'Up' ? 'green' :
+                      (host.state == 'Down' ? 'red' : '#aa0'));
+
         var lines = [];
         //console.log(host);
         lines.push('Host: ' + ('webServer' in host && host.webServer ?
@@ -443,8 +462,7 @@
 
         if ('os' in host) {
             lines.push('Operating system: ' +
-                    ('displayIcon' in host.os ?
-                     img('csugnet/img/' + host.os.displayIcon, host.os.class, 12, 12) + ' ' : '') +
+                     img('csugnet/img/' + host.os.class + '.png', host.os.class, 12, 12) + ' ' +
                      b(dutf8(host.os.release)));
         }
 
@@ -467,7 +485,7 @@
                 host.disks.map(function(disk) {
                     return '<li>' + b(disk.path) + ' is mounted with ' +
                         bytes(disk.used, 'k') + ' in use of ' + bytes(disk.total, 'k') +
-                        '<br/>' + progressBar('blue', disk.used / disk.total, 2) + '</li>';
+                        '<br/>' + progressBar(disk.used / disk.total > .8 ? 'red' : 'blue', disk.used / disk.total, 2) + '</li>';
                 }).join('') + '</ul>');
         }
 
@@ -566,8 +584,11 @@
         var globalRefreshTimeout = null;
 
         // init: get static-setup.json
-        $.getJSON('csugnet/static-setup.json')
-         .done(function(data, textStatus, jqXHR) {
+        $.ajax({
+            cache: false,
+            dataType: 'json',
+            url: 'csugnet/static-setup.json'
+        }).done(function(data, textStatus, jqXHR) {
              // on success, parse it
              if (parseData(data)) {
                  // every minute: get data.json
@@ -582,12 +603,15 @@
     });
 
     function refresh() {
-         $.getJSON('csugnet/data.json')
-          .done(function(data, textStatus, jqXHR) {
+         $.ajax({
+             cache: false,
+             dataType: 'json',
+             url: 'csugnet/data.json'
+         }).done(function(data, textStatus, jqXHR) {
              if (!parseStatus(data)) {
                  clearTimeout(globalRefreshTimeout);
              }
-          });
+         });
     }
 
     function bindTooltipEvents() {
@@ -617,14 +641,14 @@
             }
             //$('#infobox').offset({ top: off.top - h - 20, left: off.left });
             $('#infobox > p.remote').html(parsed);
-            $('#infobox').show();
+            $('#infobox').fadeIn();
             var w = $('#infobox').outerWidth();
             var h = $('#infobox').outerHeight();
             var pushRight = 0;
             if (w + off.left > current.parent().width() + current.parent().offset().left) {
                 pushRight = off.left + w - current.parent().offset().left - current.parent().width();
             }
-            $('#infobox').offset({ top: off.top + current.height() + 20, left: off.left - pushRight });
+            $('#infobox').offset({ top: off.top + current.height() + 40, left: off.left - pushRight });
             $('#infobox_arrow').show().offset({ top: $('#infobox').offset().top - $('#infobox_arrow').outerHeight(),
                 left: off.left + current.width() / 3});
             //} else { else: the ajax is currently working

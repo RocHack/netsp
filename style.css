@@ -12,7 +12,7 @@ h3 {
 }
 
 div.layout_container {
-    width: 80;
+    width: 800px;
     margin: 0 auto;
 }
 
@@ -110,12 +110,12 @@ div#infobox {
     padding: 1em;
     margin: 0;
     color: #000;
-    background: #999; /* default background for browsers without gradient support */
+    background: #ddd; /* default background for browsers without gradient support */
     /* css3 */
-    background: -webkit-linear-gradient(#eee, #999);
-    background: -moz-linear-gradient(#eee, #999);
-    background: -o-linear-gradient(#eee, #999);
-    background: linear-gradient(#eee, #999);
+    background: -webkit-linear-gradient(#ddd, #aaa);
+    background: -moz-linear-gradient(#ddd, #aaa);
+    background: -o-linear-gradient(#ddd, #aaa);
+    background: linear-gradient(#ddd, #aaa);
     -webkit-border-radius: 1em;
     -moz-border-radius: 1em;
     border-radius: 1em;
@@ -129,8 +129,8 @@ div#infobox_arrow {
     top: auto; /* value = - border-top-width - border-bottom-width */
     right: auto; /* controls horizontal position */
     bottom: -15px;
-    border-width: 1.2em; /* vary these values to change the angle of the vertex */
-    border-color: transparent transparent #eee transparent;
+    border-width: 1.5em 1.25em; /* vary these values to change the angle of the vertex */
+    border-color: transparent transparent #ddd transparent;
     /* reduce the damage in FF3.0 */
     width: 0;
     height: 0;
@@ -180,9 +180,9 @@ p.tools > span {
     cursor: pointer;
     text-align: center;
     vertical-align: middle;
-    -webkit-border-radius: ;
-    -moz-border-radius: ;
-    border-radius: ;
+    -webkit-border-radius: .5em;
+    -moz-border-radius: .5em;
+    border-radius: .5em;
 }
 
 p.tools > span:hover {
@@ -207,9 +207,9 @@ div.prog {
 
 div.prog b {
     display: inline-block;
-    overflow: none;
+    overflow: visible;
     white-space: nowrap;
-    width: 7em;
+    width: 14em;
     height: 1.2em;
     background: rgba(221,221,221,.75);
     /* css3 */
@@ -233,6 +233,15 @@ div.prog_blue {
     background: -moz-linear-gradient(#66c, #00a);
     background: -o-linear-gradient(#66c, #00a);
     background: linear-gradient(#66c, #00a);
+}
+
+div.prog_red {
+    background: #c66;
+    /* css3 */
+    background: -webkit-linear-gradient(#c66, #a00);
+    background: -moz-linear-gradient(#c66, #a00);
+    background: -o-linear-gradient(#c66, #a00);
+    background: linear-gradient(#c66, #a00);
 }
 
 div.prog_black {
