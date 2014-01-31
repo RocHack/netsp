@@ -77,7 +77,7 @@ if (validate_hash($::sta_data, { hosts => 'ARRAY'})) {
                             host => $hostObj->{name},
                             name => 'check_nfs_disks',
                             action => \&check_nfs_disks,
-                            repeat => 0
+                            repeat => 15
                         };
                     }
                     if ($hostObj->{type} eq 'computer' and
@@ -118,7 +118,7 @@ if (validate_hash($::sta_data, { hosts => 'ARRAY'})) {
                             host => $hostObj->{name},
                             name => 'check_local_disks',
                             action => \&check_local_disks,
-                            repeat => 0
+                            repeat => 15
                         };
                     }
                     push @actions, {
@@ -155,25 +155,30 @@ if (not validate_hash($::dyn_data, { hosts => 'ARRAY' })) {
 }
 
 foreach my $action (@actions) {
-    eval {
-        $action->{action}->($action->{host}) if not $action->{repeat};
-    };
+    if ($action->{repeat} == 0) {
+        eval {
+            $action->{action}->($action->{host}) 
+        };
 
-    if ($@) {
-        pr_log("A fatal error has occurred calling $action->{name}(\"$action->{host}\")\n");
-        warn $@ if $::is_debug;
+        if ($@) {
+            pr_log("A fatal error has occurred calling $action->{name}(\"$action->{host}\")\n");
+            warn $@ if $::is_debug;
+        }
     }
 }
 
 while (1) {
     foreach my $action (@actions) {
-        eval {
-            $action->{action}->($action->{host}) if $action->{repeat};
-        };
+        if ($action->{repeat} > 0 and
+            dyn_cache_timeout("action.$action->{name}", $action->{host}, $action->{repeat} * $_TIME_S_MINUTE)) {
+            eval {
+                $action->{action}->($action->{host}) if $action->{repeat};
+            };
 
-        if ($@) {
-            pr_log("A fatal error has occurred calling $action->{name}(\"$action->{host}\"): $!\n");
-            warn $@ if $::is_debug;
+            if ($@) {
+                pr_log("A fatal error has occurred calling $action->{name}(\"$action->{host}\"): $!\n");
+                warn $@ if $::is_debug;
+            }
         }
     }
 
