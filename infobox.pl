@@ -470,7 +470,7 @@ sub check_computer_up {
     $data->{state} = 'Up';
     $data->{lastChange} = $current_ts - $up_seconds;
     $data->{lastCheck} = $current_ts;
-    $data->{icon} = 'com';
+    $data->{icon} = $data->{os}->{class} if exists $data->{os};
 }
 
 sub dyn_cache {
@@ -644,7 +644,7 @@ sub check_nfs_up {
     #pr_log("HOST: $name, FN: check_nfs_up\n");
 
     $data->{state} = 'Up';
-    $data->{icon} = $sta_data->{type};
+    $data->{icon} = $sta_data->{type} if not exists $data->{icon};
 }
 
 # executes a shell command with a timeout

@@ -32,6 +32,7 @@ div > p {
 div > p > small {
     font-size: 1em;
     color: #aaaaaa;
+    white-space: nowrap;
 }
 
 /*div.comp > p {

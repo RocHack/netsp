@@ -139,13 +139,16 @@
                 for (var c = 0; c < maxCol; c++) {
                     if (String([r,c]) in grid) {
                         var host = grid[String([r,c])];
+                        if (!('alias' in host)) host.alias = [];
                         rawLayout += '<div class="layout '+
                             host.type.layoutName+'" id="'+
                             'host_'+host.name+'"><p data-color="yellow" style="color:#aa0">' +
                             host.name +
-                            (('alias' in host) ? '<br/><small>' + host.alias.toString() +
-                             '</small>' : '') + '<br/><small id="status_' + 
-                            host.name+'">Wait</small></p></div>';
+                            (host.alias.length ?
+                             '<small>/' + host.alias[0] + '</small>' : '') +
+                            '<br/><small id="status_' + 
+                            host.name+'">Wait</small>' +
+                            '</p></div>';
                     } else {
                         rawLayout += '<div class="layout spc"></div>';
                     }
@@ -183,26 +186,99 @@
         for (var i in data.hosts) {
             var host = data.hosts[i];
             
+            // validate object
             if (!requireJSONElements(
                 host, ['name','state'],
                 'data.hosts['+i+']','data.json')) {
                 return false;
             }
             
+            // create host.sessions from hosts.users
+            if ('users' in host) {
+                host.sessions = [];
+                var sess = '';
+                var lastSess = null;
+                host.users.sort(function(a,b) {
+                    return a.netid.localeCompare(b.netid);
+                }).map(function(user) {
+                    var currSess = {
+                        name: user.netid,
+                        sessions: [],
+                        header: 
+                        (user.folderExists ? '<a style="font-weight:bold" href="/u/' +
+                         user.netid + '/">' + dutf8(user.name) + '</a>' :
+                         b(dutf8(user.name)) + ' (no user directory)')
+                    };
+                    if (lastSess != null) {
+                        if (lastSess.name == user.netid) {
+                            currSess = lastSess;
+                        } else {
+                            host.sessions.push(lastSess);
+                        }
+                    }
+                    currSess.sessions.push(
+                        parseSession(user.tty, user.host) +
+                        ' since ' + dt(new Date(user.loginTime*1000)));
 
+                    lastSess = currSess;
+                });
+                if (lastSess != null) {
+                    host.sessions.push(lastSess);
+                }
+                if (host.sessions.length > 0) {
+                    sess = '<ul>' + host.sessions.map(function (sessObj) {
+                        return '<li>' + sessObj.header + '<ul>' + sessObj.sessions.map(function (userObj) {
+                            return '<li>' + userObj + '</li>';
+                        }).join('') + '</ul></li>';
+                    }).join('') + '</ul>';
+                }
+                host.sessStr = sess;
+                lastSess = null;
+            }
+
+            // set host.color
+            host.color = (host.state == 'Up' ? 'green' :
+                          (host.state == 'Down' ? 'red' : '#aa0'));
+
+            // copy to global object here
             var hostsObj = getHostByName(host.name);
             if (hostsObj == null) {
                 hosts.push(host);
             } else {
                 copyJSONElements(host, hostsObj,
-                    ['state','color','lastChange','lastCheck','os','cpu','mem',
-                     'users','disks','prText','prModel','inks','trays']);
+                    ['state','color','icon','lastChange','lastCheck','os','cpu','mem',
+                     'users','sessions','sessStr','disks','prText','prModel','inks','trays']);
                 hostsObj.ready = true;
             }
 
-            host.color = (host.state == 'Up' ? 'green' :
-                          (host.state == 'Down' ? 'red' : '#aa0'));
-            $('#status_'+host.name).text(host.state);
+            // set state on layout
+            var state = host.state;
+            if ('icon' in host) {
+                state = img('csugnet/img/' + host.icon + '.png', host.icon, 12, 12) + ' ' + state;
+            }
+            if ('lastChange' in host) {
+                state += ' ' + dtSince(new Date(host.lastChange*1000), false, true);
+            }
+            if ('sessions' in host && host.sessions.length) {
+                state += '<br/>' + host.sessions.length + ' user' +
+                    (host.sessions.length == 1 ? '' : 's');
+            }
+            if ('trays' in host && host.trays.length) {
+                if (host.trays.map(function(tray) {
+                    return (tray.state == 'OK');
+                }).indexOf(true) < 0) {
+                    state += '<br/>no paper';
+                }
+            }
+            if ('inks' in host && host.inks.length) {
+                host.inks.map(function(ink) {
+                    if (ink.amount < 5) {
+                        state += '<br/>low ' + ink.color.toLowerCase();
+                    }
+                });
+            }
+
+            $('#status_'+host.name).html(state);
             var ctx = $('#host_'+host.name+' p');
             if ('icon' in host) {
                 //.html(img(host.icon + '.png', host.icon, 12, 12) + ' ' + host.name);
@@ -223,83 +299,116 @@
     }
 
     function dt(dateObj, showSecs) {
-        var now = new Date();
-        //console.log('dt:'+dateObj + '\nnow:'+now);
-        var t = 'am';
-        if (dateObj.getHours() > 11) {
-            t = 'pm';
-        }
-        var h = dateObj.getHours() % 12;
-        if (h == 0) {
-            h = 12;
-        }
-        var m = dateObj.getMinutes();
-        var ms = m.toString();
-        if (ms.length == 1) {
-            ms = '0' + ms;
-        }
-        var s = dateObj.getSeconds();
-        var ss = s.toString();
-        if (ss.length == 1) {
-            ss = '0' + ss;
-        }
-        var d = dateObj.getDate();
-        var ds = d.toString();
-        var dord = d % 10;
-        if (dord > 3 || (d >= 10 && d < 20)) {
-            dord = 0;
-        }
-        ds += (['th', 'st', 'nd', 'rd'])[dord];
-        var w = dateObj.getDay();
-        var ws = (['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'])[w % 7];
-        var n = dateObj.getMonth();
-        var ns = ' ' + (['January','February','March','April','May','June',
-                         'July','August','September','October','November','December'])[n % 12];
-        var y = dateObj.getFullYear();
-        var ys = ' ' + y.toString();
-        if (y == now.getFullYear()) {
-            ys = '';
-        }
-        if (n == now.getMonth() && y == now.getFullYear()) {
-            ns = '';
-        }
-        if (d == now.getDate() && n == now.getMonth() && y == now.getFullYear()) {
-            ds = b('today');
-            ws = ns = ys = '';
-        } else {
-            ws = 'on ' + ws + ' the ';
-            ns = (ns.length ? ' of' : '') + ns + (ys.length ? ', ' : '');
-        }
-        var ago = '';
-        var ago_s = Math.round((now.getTime() - dateObj.getTime()) / 1000);
-        if (ago_s < 0) {
-            ago = ' from now';
-            ago_s = Math.abs(ago_s);
-        } else if (ago_s == 0) {
-            ago = 'now';
-        } else {
-            ago = ' ago';
-        }
-        var ago_m = Math.floor(ago_s / 60);
-        var ago_s60 = ago_s % 60;
-        var ago_h = Math.floor(ago_m / 60);
-        var ago_m60 = ago_m % 60;
-        var ago_d = Math.floor(ago_h / 24);
-        var ago_h24 = ago_h % 24;
-        var ago_y = Math.floor(ago_d / 365);
-        var ago_d365 = ago_d % 365;
-        if (ago_s != 0) {
-            ago = (ago_y > 0 ? ago_y + ' year' + (ago_y == 1 ? '' : 's') + ', ' : '') +
-                  (ago_d365 > 0 ? ago_d365 + ' day' + (ago_d365 == 1 ? '' : 's') + ', ' : '') +
-                  (ago_h24 > 0 ? ago_h24 + ' hour' + (ago_h24 == 1 ? '' : 's') + ', ' : '') +
-                  (ago_y + ago_d365 + ago_h24 > 0 && !showSecs ? 'and ' : '') +
-                   ago_m60 + ' minute' + (ago_m60 == 1 ? '' : 's') +
-                  (showSecs ? ', and ' + ago_s60 + ' second' + (ago_s60 == 1 ? '' : 's') : '') +
-                  ago;
-        }
+        var dtObj = parseDate(dateObj);
+        return dtObj.toString(showSecs, new Date()) + ' (' +
+            dtObj.toDiffString(showSecs, false, new Date()) + ')';
+    }
 
-        return b(h + ':' + ms + (showSecs ? ':' + ss : '') + t) + ' ' + ws + ds + ns + ys;
-        // + ' (' + b(ago, /(\d+)/g) + ')';
+    function dtSince(dateObj, showSecs, showShort) {
+        var dtObj = parseDate(dateObj);
+        return dtObj.toDiffString(showSecs, showShort, new Date());
+    }
+
+    function parseDate(dateObj) {
+        var o = {};
+        o.dt = dateObj;
+        //console.log('dt:'+dateObj + '\nnow:'+now);
+        // either am or pm
+        o.t = 'am';
+        if (dateObj.getHours() > 11) {
+            o.t = 'pm';
+        }
+        // hour
+        o.h24 = dateObj.getHours();
+        o.h = o.h24 % 12;
+        if (o.h == 0) o.h = 12;
+        // minute
+        o.m = dateObj.getMinutes();
+        o.mStr = o.m.toString();
+        if (o.mStr.length == 1) o.mStr = '0' + o.mStr;
+        // second
+        o.s = dateObj.getSeconds();
+        o.sStr = o.s.toString();
+        if (o.sStr.length == 1) o.sStr = '0' + o.sStr;
+        // day
+        o.d = dateObj.getDate();
+        o.dStr = o.d.toString();
+        o.dOrd = o.d % 10;
+        if (o.dOrd > 3 || (o.d >= 10 && o.d < 20)) o.dOrd = 0;
+        o.dStr += (['th', 'st', 'nd', 'rd'])[o.dOrd];
+        o.w = dateObj.getDay();
+        o.wStr = (['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'])[o.w % 7];
+        o.n = dateObj.getMonth();
+        o.nStr = ' ' + (['January','February','March','April','May','June',
+                         'July','August','September','October','November','December'])[o.n % 12];
+        o.y = dateObj.getFullYear();
+        o.yStr = o.y.toString();
+        o.toString = function(showSeconds, now) {
+            var thisYear = (this.y == now.getFullYear());
+            var thisMonth = (this.n == now.getMonth()) && thisYear;
+            var thisDay = (this.d == now.getDay()) && thisMonth;
+            var ys, ns, ds;
+            ys = thisYear ? '' : ', ' + this.yStr;
+            ns = thisMonth ? '' : ' of ' + this.nStr;
+            ds = thisDay ? b('today') : (this.wStr + ' the ' + this.dStr);
+            return b(this.h + ':' + this.mStr +
+                (showSeconds ? ':' + this.sStr : '') +
+                this.t) + ' ' + ds + ns + ys;
+        }
+        o.toDiffString = function(showSeconds, shorten, now) {
+            var pTotal = shorten ? 1 : 3;
+            var p = pTotal;
+            var s = ((now.getTime() - this.dt.getTime()) / 1000) | 0;
+            if (s <= 59 && !showSeconds) return (shorten ? '0m' : 'seconds ago');
+            if (s <= 0) return (shorten ? '0s' : 'moments ago');
+            var m = (s / 60) | 0;
+            s = showSeconds ? s % 60 : 0;
+            var h = (m / 60) | 0;
+            m %= 60;
+            var d = (h / 24) | 0;
+            h %= 24;
+            var y = (d / 365) | 0;
+            d %= 365;
+            var words = [' year$', ' day$', ' hour$', ' minute$', ' second$'];
+            if (shorten) words = ['y', 'd', 'h', 'm', 's'];
+            var ys, ds, hs, ms, ss;
+            if (y) {
+                ys = y.toString() + words[0].replace('$', y == 1 ? '' : 's');
+                console.log(ys);
+                p--;
+            } else {
+                ys = '';
+            }
+            if (d && p) {
+                ds = (p != pTotal ? ', ' : '') +
+                    d.toString() + words[1].replace('$', d == 1 ? '' : 's');
+                p--;
+            } else {
+                ds = '';
+            }
+            if (h && p) {
+                hs = (p != pTotal ? ', ' : '') +
+                    h.toString() + words[2].replace('$', h == 1 ? '' : 's');
+                p--;
+            } else {
+                hs = '';
+            }
+            if (m && p) {
+                ms = (p != pTotal ? ', ' : '') +
+                    m.toString() + words[3].replace('$', m == 1 ? '' : 's');
+                p--;
+            } else {
+                ms = '';
+            }
+            if (s && p) {
+                ss = (p != pTotal ? ', ' : '') +
+                    s.toString() + words[4].replace('$', s == 1 ? '' : 's');
+            } else {
+                ss = '';
+            }
+            return ys + ds + hs + ms + ss + (shorten ? '' : ' ago');
+        }
+        return o;
     }
 
     function hertz(val, mag) {
@@ -435,7 +544,7 @@
                 b(host.fullName, /^([^.]+)/)) + ' (' + b(host.fullIP, /([\d]+)$/) +
                 ')' + ('externalAccess' in host && host.externalAccess ?
                 ' (accessible outside the network)' : ''));
-        if ('alias' in host) {
+        if ('alias' in host && host.alias.length) {
             var es = host.alias.length == 1 ? '' : 'es';
             var aliases = '';
             host.alias.map(function(a){
@@ -514,50 +623,12 @@
                 }).join('') + '</ul>');
         }
 
-        if ('users' in host) {
-            var sess = '';
-            var sessList = [];
-            var lastSess = null;
-            host.users.sort(function(a,b) {
-                return a.netid.localeCompare(b.netid);
-            }).map(function(user) {
-                var currSess = {
-                    name: user.netid,
-                    sessions: [],
-                    header: 
-                    (user.folderExists ? '<a style="font-weight:bold" href="/u/' +
-                     user.netid + '/">' + dutf8(user.name) + '</a>' :
-                     b(dutf8(user.name)) + ' (no user directory)')
-                };
-                if (lastSess != null) {
-                    if (lastSess.name == user.netid) {
-                        currSess = lastSess;
-                    } else {
-                        sessList.push(lastSess);
-                    }
-                }
-                currSess.sessions.push(
-                    parseSession(user.tty, user.host) +
-                    ' since ' + dt(new Date(user.loginTime*1000)));
-
-                lastSess = currSess;
-            });
-            if (lastSess != null) {
-                sessList.push(lastSess);
-            }
-            if (sessList.length > 0) {
-                sess = '<ul>' + sessList.map(function (sessObj) {
-                    return '<li>' + sessObj.header + '<ul>' + sessObj.sessions.map(function (userObj) {
-                        return '<li>' + userObj + '</li>';
-                    }).join('') + '</ul></li>';
-                }).join('') + '</ul>';
-            }
+        if ('sessions' in host && 'sessStr' in host) {
             lines.push('Users: ' +
-                    sessList.length + ' online ' +
+                    host.sessions.length + ' online ' +
                     '(' + host.users.length + ' session' +
                     (host.users.length == 1 ? '' : 's') + ')' +
-                    sess);
-            lastSess = null;
+                    host.sessStr);
         }
 
         if ('webLocation' in host) {
@@ -565,7 +636,11 @@
                     img(host.webLocation, host.fullName + ' snapshot', 352, 240));
         }
 
-        var html = '<h2>Info for ' + host.type.displayName + ' ' + host.name + '</h2><ul>';
+        var iconStr = '';
+        if ('icon' in host) {
+            iconStr = img('csugnet/img/' + host.icon + '.png', host.icon, 16, 16) + ' ';
+        }
+        var html = '<h2>Info for ' + iconStr + host.type.displayName + ' ' + host.name + '</h2><ul>';
         for (var i in lines) {
             html += '<li>' + lines[i] + '</li>';
         }
