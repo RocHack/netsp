@@ -457,7 +457,7 @@ sub check_computer_up {
         # get real name
         $user->{name} = dyn_cache(sub {
                 my $finger = alarm_cmd("finger -ms $user->{netid}");
-                if ($finger =~ m#$user->{netid}\s+((?:\S+\s)*\S+)\s+#) {
+                if ($finger =~ m#$user->{netid}\s+((?:[^\s:]+\s)*[^\s:]+)\s+#) {
                     return $1;
                 } else {
                     return $user->{netid};
