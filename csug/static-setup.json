@@ -2,7 +2,7 @@
     "domain":"*.csug.rochester.edu",
     "name":"csug",
     "displayName":"Computer Science Undergrad Network",
-    "ip":"128.151.69.0/24",
+    "ipNets":["128.151.69.0/24"],
 
     "categories":[
         {"name":"west","displayName":"Majors Lab","room":"CSB 633","position":1},

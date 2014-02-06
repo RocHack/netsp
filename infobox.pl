@@ -20,14 +20,20 @@ $::host = hostname;
 $::host =~ m/^([^.]+)\./;
 $::host = $1;
 
+$::network_folder = '';
 $::is_master = 1;
 $::is_debug = 0;
 $::is_forked = 0;
 do {
+    my $netf_thisarg = 0;
     my $m_set = 0;
     my $d_set = 0;
     foreach my $arg (@ARGV) {
-        if ($arg eq '--slave' and not $m_set) {
+        if ($netf_thisarg) {
+            $::network_folder = $arg;
+        } elsif ($arg eq '--net') {
+            $netf_thisarg = 1;
+        } elsif ($arg eq '--slave' and not $m_set) {
             $m_set = 1;
             $::is_master = 0;
         } elsif ($arg eq '--master' and not $m_set) {
@@ -53,7 +59,12 @@ do {
     }
 };
 
-my $url = 'https://csug.rochester.edu/u/nbook/csugnet.html';
+if (not $::network_folder eq 'csug' and not $::network_folder eq 'urcs') {
+    pr_log("Network unknown or not defined. Must be 'csug' or 'urcs' for now. Aborting.\n");
+    exit;
+}
+
+my $url = "https://csug.rochester.edu/u/nbook/netsp-$::network_folder.html";
 $0 = "infobox.pl master=$::is_master debug=$::is_debug $url";
 
 pr_log("$0\n");
@@ -63,7 +74,7 @@ if (!daemonize()) {
 }
 
 my @actions = ( );
-$::sta_data = read_json_file('static-setup.json');
+$::sta_data = read_json_file($::network_folder . '/static-setup.json');
 if (validate_hash($::sta_data, { hosts => 'ARRAY'})) {
     foreach my $hostObj (@{$::sta_data->{hosts}}) {
         if (validate_hash($hostObj, { name => 'SCALAR', type => 'SCALAR' })) {
@@ -147,11 +158,11 @@ if (validate_hash($::sta_data, { hosts => 'ARRAY'})) {
 
 $::cmds = [];
 
-lock_file('data.json');
-$::dyn_data = read_json_file('data.json');
+lock_file($::network_folder . '/data.json');
+$::dyn_data = read_json_file($::network_folder . '/data.json');
 if (not validate_hash($::dyn_data, { hosts => 'ARRAY' })) {
-    pr_log("Dynamic data.json file does not have a 'hosts' array. Aborting.\n");
-    exit 1;
+    pr_log("Dynamic data.json file does not have a 'hosts' array. Clearing and resetting.\n");
+    $::dyn_data = { hosts => [ ] };
 }
 
 foreach my $action (@actions) {
@@ -182,19 +193,20 @@ while (1) {
         }
     }
 
-    write_json_file('data.json', $::dyn_data);
-    unlock_file('data.json');
+    write_json_file($::network_folder . '/data.json', $::dyn_data);
+    unlock_file($::network_folder . '/data.json');
 
     # run commands deferred until after we've unlocked data.json, i.e. starting other scripts
-    while (deferred_cmd_run()) {}
+    # run one command per iteration
+    deferred_cmd_run();
 
     sleep $_TIME;
 
-    lock_file('data.json');
-    $::dyn_data = read_json_file('data.json');
+    lock_file($::network_folder . '/data.json');
+    $::dyn_data = read_json_file($::network_folder . '/data.json');
     if (not validate_hash($::dyn_data, { hosts => 'ARRAY' })) {
-        pr_log("Dynamic data.json file does not have a 'hosts' array. Aborting.\n");
-        exit 1;
+        pr_log("Dynamic data.json file does not have a 'hosts' array. Clearing and resetting.\n");
+        $::dyn_data = { hosts => [ ] };
     }
 }
 
@@ -299,7 +311,10 @@ sub pr_log {
     my $out = shift;
     $out = "[$::host] $out";
     print $out if ($::is_debug or not $::is_forked);
-    if (open my $fh, '>>', "log/$::host") {
+    if (not (-d "$::network_folder/logs")) {
+        mkdir "$::network_folder/logs", 0755;
+    }
+    if (open my $fh, '>>', "$::network_folder/logs/$::host") {
         print $fh $out;
         close $fh;
     }
@@ -547,9 +562,9 @@ sub check_computer_timeout {
         if (dyn_cache_timeout('hostInit', $name, $_TIME_IS_DOWN)) {
             pr_log("Initializing script on remote host $name (deferred)...\n");
             deferred_cmd_add("ssh $name \"".
-                'pkill infobox; '.
-                'cd ~/www/csugnet; '.
-                'PERL5LIBS=/u/nbook/perl5/lib/perl5 ./infobox.pl --slave"');
+                "pkill infobox; ".
+                "cd ~/www/netsp; ".
+                "PERL5LIBS=/u/nbook/perl5/lib/perl5 ./infobox.pl --slave --net $::network_folder\"");
         }
     }
 }
@@ -676,15 +691,21 @@ sub alarm_cmd {
     }
 }
 
+# add a command to the set of deferred commands
 sub deferred_cmd_add {
     my $cmd = shift;
+    foreach my $otherCmd (@$::cmds) {
+        # do not add if duplicate
+        return if $otherCmd eq $cmd;
+    }
     push @$::cmds, $cmd;
 }
 
+# run a single command
 sub deferred_cmd_run {
     if (@$::cmds) {
         eval {
-            my $cmd = pop @$::cmds;
+            my $cmd = shift @$::cmds;
             pr_log("Running deferred command: $cmd\n");
             my $result = alarm_cmd($cmd);
             chomp $result;

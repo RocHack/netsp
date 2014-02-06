@@ -1,6 +1,7 @@
 (function () {
+    var folderName = '';
     var domain = '';
-    var ip = '';
+    var ips = [];
     var hosts = [];
 
     function getHostByName(name) {
@@ -60,11 +61,11 @@
         });
     }
 
-    // parse the STATIC layout file at csugnet/static-setup.json
+    // parse the STATIC layout file at netsp/<folder>/static-setup.json
     // generate the page body
-    function parseData(data) {
+    function parseStaticLayout(data) {
         if (!requireJSONElements(
-            data, ['name','displayName','domain','ip','categories','types','hosts'],
+            data, ['name','displayName','domain','ipNets','categories','types','hosts'],
             'data', 'static-setup.json')) {
             return false;
         }
@@ -73,10 +74,10 @@
              '<p class="tools"><span id="refresh" title="refresh">&#8635;</span></p>' +
              '<h3>Network Status Page <small>for the</small></h3>'+
              '<h1>'+data.displayName+'</h1>'+
-             '<h3><small>at</small> '+data.domain+' ('+data.ip+')</h3>');
+             '<h3><small>at</small> '+data.domain+' ('+data.ipNets.join(', ')+')</h3>');
 
         domain = data.domain;
-        ip = data.ip;
+        ips = data.ipNets;
 
         var layouts = [];
         var order = [];
@@ -128,7 +129,8 @@
                         maxCol = host.position[1] + 1;
                     }
                     host.fullName = domain.replace('*', host.name);
-                    host.fullIP = mkIP(ip, host.ip);
+                    host.ipNet = ('ipNet' in host) ? host.ipNet : 0;
+                    host.fullIP = mkIP(ips[host.ipNet], host.ip);
                     host.state = 'Loading';
                     host.color = '#aa0';
                     host.ready = false;
@@ -163,7 +165,7 @@
             return a.sortPosition - b.sortPosition;
         });
 
-        $('a#logoLink').after(header);
+        $('div#netsp-link').after(header);
         header.show();
         var prev = header;
         layouts.map(function (layout) {
@@ -174,9 +176,9 @@
         return true;
     }
 
-    // parse the DYNAMIC global status data at csugnet/data.json
+    // parse the DYNAMIC global status data at netsp/<folder>/data.json
     // re-done every minute
-    function parseStatus(data) {
+    function parseDynamicData(data) {
         if (!requireJSONElements(
             data, ['hosts'],
             'data', 'data.json')) {
@@ -254,7 +256,7 @@
             // set state on layout
             var state = host.state;
             if ('icon' in host) {
-                state = img('csugnet/img/' + host.icon + '.png', host.icon, 12, 12) + ' ' + state;
+                state = img('netsp/img/' + host.icon + '.png', host.icon, 12, 12) + ' ' + state;
             }
             if ('lastChange' in host) {
                 state += ' ' + dtSince(new Date(host.lastChange*1000), false, true);
@@ -337,10 +339,10 @@
         if (o.dOrd > 3 || (o.d >= 10 && o.d < 20)) o.dOrd = 0;
         o.dStr += (['th', 'st', 'nd', 'rd'])[o.dOrd];
         o.w = dateObj.getDay();
-        o.wStr = (['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'])[o.w % 7];
+        o.wStr = (['Sun','Mon','Tue','Wed','Thu','Fri','Sat'])[o.w % 7];
         o.n = dateObj.getMonth();
-        o.nStr = ' ' + (['January','February','March','April','May','June',
-                         'July','August','September','October','November','December'])[o.n % 12];
+        o.nStr = ' ' + (['Jan','Feb','Mar','Apr','May','Jun',
+                         'Jul','Aug','Sep','Oct','Nov','Dec'])[o.n % 12];
         o.y = dateObj.getFullYear();
         o.yStr = o.y.toString();
         o.toString = function(showSeconds, now) {
@@ -349,14 +351,14 @@
             var thisDay = (this.d == now.getDay()) && thisMonth;
             var ys, ns, ds;
             ys = thisYear ? '' : ', ' + this.yStr;
-            ns = thisMonth ? '' : ' of ' + this.nStr;
-            ds = thisDay ? b('today') : (this.wStr + ' the ' + this.dStr);
+            ns = thisMonth ? '' : ' ' + this.nStr;
+            ds = this.wStr + ', ' + this.dStr;
             return b(this.h + ':' + this.mStr +
                 (showSeconds ? ':' + this.sStr : '') +
                 this.t) + ' ' + ds + ns + ys;
         }
         o.toDiffString = function(showSeconds, shorten, now) {
-            var pTotal = shorten ? 1 : 3;
+            var pTotal = shorten ? 1 : 2;
             var p = pTotal;
             var s = ((now.getTime() - this.dt.getTime()) / 1000) | 0;
             if (s <= 59 && !showSeconds) return (shorten ? '0m' : 'seconds ago');
@@ -571,7 +573,7 @@
 
         if ('os' in host) {
             lines.push('Operating system: ' +
-                     img('csugnet/img/' + host.os.class + '.png', host.os.class, 12, 12) + ' ' +
+                     img('netsp/img/' + host.os.class + '.png', host.os.class, 12, 12) + ' ' +
                      b(dutf8(host.os.release)));
         }
 
@@ -600,7 +602,7 @@
 
         if ('prModel' in host) {
             lines.push('Printer Model: ' + 
-                     img('csugnet/img/hp.png', 'hp', 12, 12) + ' ' +
+                     img('netsp/img/hp.png', 'hp', 12, 12) + ' ' +
                      b(dutf8(host.prModel)));
         }
 
@@ -638,7 +640,7 @@
 
         var iconStr = '';
         if ('icon' in host) {
-            iconStr = img('csugnet/img/' + host.icon + '.png', host.icon, 16, 16) + ' ';
+            iconStr = img('netsp/img/' + host.icon + '.png', host.icon, 16, 16) + ' ';
         }
         var html = '<h2>Info for ' + iconStr + host.type.displayName + ' ' + host.name + '</h2><ul>';
         for (var i in lines) {
@@ -649,23 +651,26 @@
     }
 
     $(document).ajaxError(function (e, jqXHR, set, ex) {
-        if (set.url == 'csugnet/static-setup.json' ||
-            set.url == 'csugnet/data.json') {
-            fatalError('HTTP error: '+ex, set.url.substr(8));
+        if (set.url == 'netsp/' + folderName + '/static-setup.json' ||
+            set.url == 'netsp/' + folderName + '/data.json') {
+            fatalError('HTTP error: '+ex, set.url);
         }
     });
 
     $(document).ready(function () {
         var globalRefreshTimeout = null;
 
+        folderName = $('div#netsp-link').attr('data-folder');
+        $('body').append($('<div id="infobox"><p class="tools"><span id="close" title="close">&times;</span></p><p class="remote">itext</p></div><div id="infobox_arrow"></div>'));
+
         // init: get static-setup.json
         $.ajax({
-            cache: false,
+            cache: true,
             dataType: 'json',
-            url: 'csugnet/static-setup.json'
+            url: 'netsp/' + folderName + '/static-setup.json'
         }).done(function(data, textStatus, jqXHR) {
              // on success, parse it
-             if (parseData(data)) {
+             if (parseStaticLayout(data)) {
                  // every minute: get data.json
                  globalRefreshTimeout = setInterval(function(){
                      refresh();
@@ -681,9 +686,9 @@
          $.ajax({
              cache: false,
              dataType: 'json',
-             url: 'csugnet/data.json'
+             url: 'netsp/' + folderName + '/data.json'
          }).done(function(data, textStatus, jqXHR) {
-             if (!parseStatus(data)) {
+             if (!parseDynamicData(data)) {
                  clearTimeout(globalRefreshTimeout);
              }
          });
@@ -723,9 +728,11 @@
             if (w + off.left > current.parent().width() + current.parent().offset().left) {
                 pushRight = off.left + w - current.parent().offset().left - current.parent().width();
             }
-            $('#infobox').offset({ top: off.top + current.height() + 40, left: off.left - pushRight });
-            $('#infobox_arrow').show().offset({ top: $('#infobox').offset().top - $('#infobox_arrow').outerHeight(),
-                left: off.left + current.width() / 3});
+            $('#infobox').css({ top: off.top + current.height() + 40, left: off.left - pushRight });
+            $('#infobox_arrow').show().css({
+                top: $('#infobox').offset().top -
+                $('#infobox_arrow').outerHeight(),
+                left: off.left + current.width() / 3 }).fadeIn();
             //} else { else: the ajax is currently working
         });
         $('#infobox, #infobox_arrow').on('mouseover', function () {
@@ -742,7 +749,7 @@
             hideTimeout = setTimeout(function () {
                 current = null;
                 $('#infobox').fadeOut();
-                $('#infobox_arrow').hide();
+                $('#infobox_arrow').fadeOut();
             },5000);
         });
         $('#infobox #close').on('click', function () {
@@ -752,7 +759,7 @@
                 hideTimeout = null;
             }
             $('#infobox').fadeOut();
-            $('#infobox_arrow').hide();
+            $('#infobox_arrow').fadeOut();
         });
         $('#refresh').on('click', function () {
             refresh();
