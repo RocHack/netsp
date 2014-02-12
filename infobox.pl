@@ -74,10 +74,13 @@ if (!daemonize()) {
 }
 
 my @actions = ( );
+my $index = 0;
+my $total = 0;
 $::sta_data = read_json_file($::network_folder . '/static-setup.json');
 if (validate_hash($::sta_data, { hosts => 'ARRAY'})) {
     foreach my $hostObj (@{$::sta_data->{hosts}}) {
         if (validate_hash($hostObj, { name => 'SCALAR', type => 'SCALAR' })) {
+            $total++;
             my $perm_down = 0;
             $perm_down = 1 if exists $hostObj->{permanentDown} and
                 $hostObj->{permanentDown};
@@ -124,6 +127,7 @@ if (validate_hash($::sta_data, { hosts => 'ARRAY'})) {
                 }
 
                 if ($hostObj->{name} eq $::host) {
+                    $index = $total;
                     if (exists $hostObj->{localDisks}) {
                         push @actions, {
                             host => $hostObj->{name},
@@ -155,6 +159,8 @@ if (validate_hash($::sta_data, { hosts => 'ARRAY'})) {
     pr_log("static-setup.json object is invalid.\n");
     exit 1;
 }
+
+wait_offset($index, $total);
 
 $::cmds = [];
 
@@ -200,7 +206,8 @@ while (1) {
     # run one command per iteration
     deferred_cmd_run();
 
-    sleep $_TIME;
+    sleep 3;
+    wait_offset($index, $total);
 
     lock_file($::network_folder . '/data.json');
     $::dyn_data = read_json_file($::network_folder . '/data.json');
@@ -837,5 +844,19 @@ sub m2n {
 sub currY {
     my @now = localtime time;
     return $now[5] + 1900;
+}
+
+sub wait_offset {
+    my $index = shift;
+    my $total = shift;
+    # offset self by ~3 seconds from other running scripts, by order in static_setup.json
+    if ($index > 0 && $total >= $index) {
+        my $t3 = $total * 3;
+        my $t_in_cycle = time % $t3;
+        $_TIME = $t3;
+        my $offset = $index * 3 - $t_in_cycle;
+        $offset += $t3 if $offset < 0;
+        sleep $offset;
+    }
 }
 
