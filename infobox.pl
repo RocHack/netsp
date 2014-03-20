@@ -373,65 +373,123 @@ sub check_computer_specs {
     }
 
     # populate cpu
-    my $cpu; my $mem;
+    my $cpu;
     if ($sunos) {
         # set cpu.model, cpu.cores, cpu.threads, and cpu.speed
         my $prtdiag = alarm_cmd('/usr/sbin/prtdiag');
         my @lines = split m/\n/, $prtdiag;
+        my $cpu_p = {};
         foreach my $line (@lines) {
             if ($line =~ m/^(\d+)\s+(\d+)\sMHz\s+(\S+)\s+on-line\s*$/) {
                 (my $n, my $mhz, my $name) = ($1, $2, $3);
-                $cpu->{model} = $name;
-                chomp $cpu->{model};
-                $cpu->{modelClean} = $cpu->{model};
-                $cpu->{modelClean} =~ s/SUNW,//;
-                $cpu->{threads} = $n + 1;
-                $cpu->{cores} = ($n + 1) / 4;
-                $cpu->{speed} = $mhz + 0;
+                $cpu_p->{model} = $name;
+                chomp $cpu_p->{model};
+                $cpu_p->{model_clean} = $cpu_p->{model};
+                $cpu_p->{model_clean} =~ s/SUNW,//;
+                $cpu_p->{threads} = $n + 1;
+                $cpu_p->{cores} = ($n + 1) / 4;
+                $cpu_p->{speed} = $mhz + 0;
             }
         }
+
+        $cpu = [ $cpu_p ];
         
         # set mem.total
+        my $mem_m;
         my $prtconf = alarm_cmd('/usr/sbin/prtconf | head -n 2');
         if ($prtconf =~ m/Memory size: (\d+) Megabytes/) {
-            $mem = { total => $1 * 1024 };
+            $mem_m = { name => 'main', total => $1 * 1024, used => -1 };
         }
+        delete $data->{mem} if exists $data->{mem};
+        $data->{main_mem} = $mem_m;
     } else {
         # set cpu.model, cpu.cores, cpu.threads, and cpu.speed
         my $cpu_info = alarm_cmd('cat /proc/cpuinfo');
-        if ($cpu_info =~ m/model name\s+:\s+(.*)\s+stepping/) {
-            $cpu->{model} = $1;
-            chomp $cpu->{model};
-            $cpu->{modelClean} = $cpu->{model};
-            $cpu->{modelClean} =~ s/\bCPU\b|\s@\s|\b[\d.]+\s?[TGM]Hz\b//g;
-            $cpu->{modelClean} =~ s/^\s+(.*?)\s+$/$1/;
-        }
-        if ($cpu_info =~ m/siblings\s+:\s+(\d+)/) {
-            $cpu->{threads} = $1 + 0;
-            $cpu->{threads} = 1 if ($cpu->{threads} == 0);
-        } else {
-            $cpu->{threads} = 1;
-        }
-        if ($cpu_info =~ m/cpu cores\s+:\s+(\d+)/) {
-            $cpu->{cores} = $1 + 0;
-            $cpu->{cores} = 1 if ($cpu->{cores} == 0);
-        } else {
-            $cpu->{cores} = 1;
-        }
-        if ($cpu_info =~ m/cpu MHz\s+:\s+([\d.]+)/) {
-            $cpu->{speed} = $1 + 0;
+        my $cpu_c;
+        my $cpu_model;
+        my $cpu_speed;
+        my $cpu_p_index;
+        my $cpu_c_index;
+        $cpu = {};
+        my @lines = split /\n/, $cpu_info;
+        foreach my $line (@lines) {
+            if ($line =~ m/([^:]+):\s+(.*)/) {
+                my $cpu_field = $1;
+                my $cpu_value = $2;
+
+                $cpu_field =~ s/\s*$//;
+                $cpu_field =~ s/^\s*//;
+                $cpu_value =~ s/\s*$//;
+
+                if ($cpu_field eq 'processor') {
+                    # start of new proc info
+                    if (defined $cpu_c) {
+                        my $ht = 1;
+                        if (exists $cpu->{$cpu_p_index}->{$cpu_c_index}) {
+                            # hyperthreaded
+                            $ht = $cpu->{$cpu_p_index}->{$cpu_c_index}->{hyperthreads} + 1;
+                        }
+                        $cpu->{$cpu_p_index}->{$cpu_c_index} = $cpu_c;
+                        $cpu->{$cpu_p_index}->{$cpu_c_index}->{hyperthreads} = $ht;
+                    }
+                    $cpu_c = { index => $cpu_value + 0, dict => {} };
+                } elsif ($cpu_field eq 'model name') {
+                    $cpu_model = $cpu_value;
+                    $cpu_c->{model} = $cpu_model;
+                    $cpu_c->{model_clean} = $cpu_model;
+                    $cpu_c->{model_clean} =~ s/\bCPU\b|\s@\s|\b[\d.]+\s?[TGM]Hz\b//g;
+                    $cpu_c->{model_clean} =~ s/(\s)\s+/$1/g;
+                    $cpu_c->{model_clean} =~ s/^\s//;
+                    $cpu_c->{model_clean} =~ s/\s$//;
+                } elsif ($cpu_field eq 'cpu MHz') {
+                    $cpu_speed = $cpu_value + 0;
+                    $cpu_c->{speed} = $cpu_speed;
+                } elsif ($cpu_field eq 'physical id') {
+                    $cpu_p_index = $cpu_value + 0;
+                    $cpu_c->{p_index} = $cpu_p_index;
+                } elsif ($cpu_field eq 'core id') {
+                    $cpu_c_index = $cpu_value + 0;
+                    $cpu_c->{c_index} = $cpu_c_index;
+                }
+            }
         }
 
-        # set mem.total
-        my $mem_info = alarm_cmd('cat /proc/meminfo | head -n 1');
-        if ($mem_info =~ m/MemTotal:\s+(\d+) kB/) {
-            $mem = { total => $1 + 0 };
+        # add last core
+        if (defined $cpu_c) {
+            my $ht = 1;
+            if (exists $cpu->{$cpu_p_index}->{$cpu_c_index}) {
+                # hyperthreaded
+                $ht = $cpu->{$cpu_p_index}->{$cpu_c_index}->{hyperthreads} + 1;
+            }
+            $cpu->{$cpu_p_index}->{$cpu_c_index} = $cpu_c;
+            $cpu->{$cpu_p_index}->{$cpu_c_index}->{hyperthreads} = $ht;
         }
+
+        # remove unnecessary data by converting to arrays
+        my $cpu_arr = [];
+        foreach my $p_index (keys %$cpu) {
+            my $c_index_any;
+            my $c_num = 0;
+            foreach my $c_index (keys %{$cpu->{$p_index}}) {
+                $c_index_any = $c_index if not defined $c_index_any;
+                $c_num += $cpu->{$p_index}->{$c_index}->{hyperthreads};
+            }
+            my $cpu_p = {
+                model => $cpu->{$p_index}->{$c_index_any}->{model},
+                model_clean => $cpu->{$p_index}->{$c_index_any}->{model_clean},
+                speed => $cpu->{$p_index}->{$c_index_any}->{speed},
+                threads => $c_num,
+                ht_per_core => $cpu->{$p_index}->{$c_index_any}->{hyperthreads},
+                physical_id => $p_index + 0
+            };
+            push @$cpu_arr, $cpu_p;
+        }
+
+        $cpu = $cpu_arr;
     }
 
     $data->{os} = $os;
     $data->{cpu} = $cpu;
-    $data->{mem} = $mem;
     $data->{icon} = $data->{os}->{class};
 }
 
@@ -488,7 +546,20 @@ sub check_computer_up {
         push @$users, $user;
     }
 
+    # set memory data (will fail on SunOS)
+    my $mem_s; my $mem_m;
+    my $mem_info = alarm_cmd('free');
+    if ($mem_info =~ m/Mem:\s+(\d+)\s+(\d+)\s+(\d+)/) {
+        $mem_m = { name => 'main', total => $1 + 0, used => $2 + 0 };
+    }
+    if ($mem_info =~ m/Swap:\s+(\d+)\s+(\d+)\s+(\d+)/) {
+        $mem_s = { name => 'swap', total => $1 + 0, used => $2 + 0 };
+    }
+
     $data->{users} = $users;
+    delete $data->{mem} if exists $data->{mem};
+    $data->{main_mem} = $mem_m if defined $mem_m;
+    $data->{swap_mem} = $mem_s if defined $mem_s;
     $data->{state} = 'Up';
     $data->{lastChange} = $current_ts - $up_seconds;
     $data->{lastCheck} = $current_ts;
@@ -847,6 +918,9 @@ sub currY {
 }
 
 sub wait_offset {
+    #sleep 5;
+    #pr_log("DEBUG: Running now...\n");
+    #return;
     my $index = shift;
     my $total = shift;
     # offset self by ~3 seconds from other running scripts, by order in static_setup.json

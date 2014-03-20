@@ -236,6 +236,15 @@ div.prog_blue {
     background: linear-gradient(#66c, #00a);
 }
 
+div.prog_green {
+    background: #0a0;
+    /* css3 */
+    background: -webkit-linear-gradient(#0a0, #050);
+    background: -moz-linear-gradient(#0a0, #050);
+    background: -o-linear-gradient(#0a0, #050);
+    background: linear-gradient(#0a0, #050);
+}
+
 div.prog_red {
     background: #c66;
     /* css3 */

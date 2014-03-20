@@ -248,7 +248,7 @@
                 hosts.push(host);
             } else {
                 copyJSONElements(host, hostsObj,
-                    ['state','color','icon','lastChange','lastCheck','os','cpu','mem',
+                    ['state','color','icon','lastChange','lastCheck','os','cpu','mem','swap_mem','main_mem',
                      'users','sessions','sessStr','disks','prText','prModel','inks','trays']);
                 hostsObj.ready = true;
             }
@@ -274,7 +274,7 @@
             }
             if ('inks' in host && host.inks.length) {
                 host.inks.map(function(ink) {
-                    if (ink.amount < 5) {
+                    if (ink.amount < 10) {
                         state += '<br/>low ' + ink.color.toLowerCase();
                     }
                 });
@@ -450,8 +450,14 @@
         return unescape(encodeURIComponent(s));
     }
 
-    function progressBar(color, percent, decPts) {
-        return'<div class="prog"><div class="prog_' + color + '" ' +
+    function progressBar(color, percent, decPts, warnColor, cutoff) {
+        var c = color;
+        if (cutoff && warnColor &&
+                ((cutoff > 0 && percent >= cutoff) ||
+                 (cutoff < 0 && percent <= Math.abs(cutoff)))) {
+            c = warnColor;
+        }
+        return'<div class="prog"><div class="prog_' + c + '" ' +
             'style="width: ' + (percent * 100).toFixed(1) + '%;">' +
             b((percent * 100).toFixed(decPts) + ' %') +
             '</div></div>';
@@ -587,8 +593,45 @@
                     (host.cpu.threads == 1 ? '' : 's') + ')');
         }
 
-        if ('mem' in host && host.mem.total) {
+        if ('cpu' in host && host.cpu.length) {
+            var cpu_parse = function (obj) {
+                if (obj.model_clean && obj.speed && obj.threads) {
+                    return b(dutf8(obj.model_clean
+                            .replace(/\(R\)/g, '&reg;')
+                            .replace(/\(TM\)/g, '&trade;'))) +
+                        ' (' + hertz(obj.speed, 'M') +
+                        ' on ' + b(obj.threads) + ' thread' +
+                        (obj.threads == 1 ? '' : 's') + ')';
+                } else {
+                    return '';
+                }
+            };
+            if (host.cpu.length == 1) {
+                lines.push('CPU: ' + cpu_parse(host.cpu[0]));
+            } else {
+                lines.push('CPU: ' + host.cpu.length + ' CPUs connected<ul>' + host.cpu.map(function (obj) {
+                    return '<li>' + cpu_parse(obj) + '</li>';
+                }).join('') + '</ul>');
+            }
+        }
+
+        if ('mem' in host && !('main_mem' in host) && host.mem && host.mem.total) {
             lines.push('Memory: ' + bytes(host.mem.total, 'k'));
+        } else if ('main_mem' in host && host.main_mem) {
+            var mem_data = 'Memory: <ul><li>' +
+                (host.main_mem.used >= 0 ? bytes(host.main_mem.used, 'k') + ' in use of ' : '') +
+                bytes(host.main_mem.total, 'k') + ' (' + b('main') + ')' +
+                (host.main_mem.used >= 0 ? '<br/>' + progressBar('green',
+                host.main_mem.used / host.main_mem.total, 2, 'red', .9) : '') + '</li>';
+            if ('swap_mem' in host && host.swap_mem)  {
+                mem_data += '<li>' +
+                    (host.swap_mem.used >= 0 ? bytes(host.swap_mem.used, 'k') + ' in use of ' : '') +
+                    bytes(host.swap_mem.total, 'k') + ' (' + b('swap') + ')' +
+                    (host.swap_mem.used >= 0 ? '<br/>' + progressBar('green',
+                    host.swap_mem.used / host.swap_mem.total, 2, 'red', .9) : '') + '</li>';
+            }
+            mem_data += '</ul>';
+            lines.push(mem_data);
         }
 
         if ('disks' in host && host.disks && host.disks.length > 0) {
@@ -596,7 +639,7 @@
                 host.disks.map(function(disk) {
                     return '<li>' + b(disk.path) + ' is mounted with ' +
                         bytes(disk.used, 'k') + ' in use of ' + bytes(disk.total, 'k') +
-                        '<br/>' + progressBar(disk.used / disk.total > .8 ? 'red' : 'blue', disk.used / disk.total, 2) + '</li>';
+                        '<br/>' + progressBar('blue', disk.used / disk.total, 2, 'red', .9) + '</li>';
                 }).join('') + '</ul>');
         }
 
@@ -614,7 +657,7 @@
             lines.push('Ink cartridges: ' + host.inks.length + ' installed<ul>' +
                 host.inks.map(function(ink) {
                     return '<li>' + b(ink.color) + ' cartridge<br/>' +
-                    progressBar(ink.color.toLowerCase(), ink.amount / 100, 0) + '</li>';
+                    progressBar(ink.color.toLowerCase(), ink.amount / 100, 0, 'red', -.1) + '</li>';
                 }).join('') + '</ul>');
         }
 
