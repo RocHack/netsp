@@ -504,9 +504,9 @@
         { match: /^([^:]*):tty(\d+):S\.(\d+)$/, on: 'screen $3', from: 'ctrl+alt+f$2', via: '$1' },
         { match: /^([^:]*):(\S+):S\.(\d+)$/, on: 'screen $3', from: '$2', via: '$1' },
         { match: /^([^:]*):(\d+)\.(\d+)$/, from: 'graphical server $2 (port $3)', via: '$1',
-            on: 'terminal', as: '' },
+            on: 'terminal' },
         { match: /^([^:]*):(\d+)$/, from: 'graphical server $2', via: '$1',
-            on: 'terminal', as: '' },
+            on: 'terminal' },
         { match: /(.*)/, from: 'host $1' }
         ];
         hostTypeM.map(function (obj) {
