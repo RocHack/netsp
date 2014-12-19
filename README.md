@@ -1,8 +1,8 @@
 Network Status Page Scripts for UR CSUG and CS Networks
 =======================================================
 
-This is the magic behind the Network Status Page (NetSP), [netsp-csug.html][1],
-in [csug-home][2], currently live [here][3].
+This is the magic behind the Network Status Page (NetSP), masterminded by Nate Book
+and modified slightly by Hassler Thurston, currently live [here][3].
 
 1. The main script, `infobox.pl`, runs on every computer on the network.
 2. The current status is stored by this script in a world readable file, called
@@ -35,7 +35,11 @@ Components:
 * `netsp.js`: The JavaScript to run the NetSP.
 * `index.php`: A short script that moves you up one level to the NetSP page.
 
+Useful links:
+* [netsp-csug.html][1] page, in Nate Book's CSUG-home repository
+* GitHub home of Nate's [CSUG-home][2] repository 
+
 [1]: https://github.com/nmbook/csug-home/blob/master/netsp-csug.html
 [2]: https://github.com/nmbook/csug-home
-[3]: https://csug.rochester.edu/u/nbook/netsp-csug.html
+[3]: https://csug.rochester.edu/u/jthurst3/csug-home/netsp-csug.html
 
