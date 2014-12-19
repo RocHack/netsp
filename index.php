@@ -1,5 +1,5 @@
 <?php
 
-header('Location: ../csugnet.html');
+header('Location: ../netsp-csug.html');
 
 

@@ -1,7 +1,7 @@
 #!/usr/bin/sh
 
 # THIS MUST BE SET IN ENVIRONMENT
-#PERL5LIB=/u/nbook/perl5/lib/perl5
+#PERL5LIB=/u/jthurst3/perl5/lib/perl5
 computers='cycle1 cycle2 cycle3
     tabletop blake macomb cascade phelps colden porter marcy seward nye sawteeth
     skylight armstrong cliff gothics hough haystack iroquois colvin

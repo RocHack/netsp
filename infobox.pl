@@ -64,7 +64,7 @@ if (not $::network_folder eq 'csug' and not $::network_folder eq 'urcs') {
     exit;
 }
 
-my $url = "https://csug.rochester.edu/u/nbook/netsp-$::network_folder.html";
+my $url = "https://csug.rochester.edu/u/jthurst3/csug-home/netsp-$::network_folder.html";
 $0 = "infobox.pl master=$::is_master debug=$::is_debug $url";
 
 pr_log("$0\n");
@@ -641,8 +641,8 @@ sub check_computer_timeout {
             pr_log("Initializing script on remote host $name (deferred)...\n");
             deferred_cmd_add("ssh $name \"".
                 "pkill infobox; ".
-                "cd ~/www/netsp; ".
-                "PERL5LIBS=/u/nbook/perl5/lib/perl5 ./infobox.pl --slave --net $::network_folder\"");
+                "cd ~/www/csug-home/netsp; ".
+                "PERL5LIBS=/u/jthurst3/perl5/lib/perl5 ./infobox.pl --slave --net $::network_folder\"");
         }
     }
 }
