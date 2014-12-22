@@ -41,5 +41,5 @@ Useful links:
 
 [1]: https://github.com/nmbook/csug-home/blob/master/netsp-csug.html
 [2]: https://github.com/nmbook/csug-home
-[3]: https://csug.rochester.edu/u/jthurst3/csug-home/netsp-csug.html
+[3]: https://csug.rochester.edu/ugc/netsp-csug.html
 
