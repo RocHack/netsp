@@ -4,4 +4,7 @@ pjstatus*
 *~
 data.json
 data.json.lock
-
+# image files
+*.png
+# jQuery
+jquery.min.js
