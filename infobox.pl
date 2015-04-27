@@ -642,7 +642,7 @@ sub check_computer_timeout {
             deferred_cmd_add("ssh $name \"".
                 "pkill infobox; ".
                 "cd /u/www/ugc/netsp; ".
-                "PERL5LIBS=/u/www/ugc/perl5 ./infobox.pl --slave --net $::network_folder\"");
+                "PERL5LIB=/u/www/ugc/perl5 ./infobox.pl --slave --net $::network_folder\"");
         }
     }
 }
