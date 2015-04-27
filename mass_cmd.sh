@@ -5,7 +5,7 @@
 computers='cycle1 cycle2 cycle3
     tabletop blake macomb cascade phelps colden porter marcy seward nye sawteeth
     skylight armstrong cliff gothics hough haystack iroquois colvin
-    whiteface panther algonquin wright redfield marshall niagara1 utility1'
+    whiteface panther algonquin wright redfield marshall utility1'
 for C in $computers; do
     echo "[$C] $@";
     ssh $C "$@";
