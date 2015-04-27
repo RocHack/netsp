@@ -284,6 +284,7 @@ sub dyn_data_get_host {
         icon => 'unk'
     };
     push @{$::dyn_data->{hosts}}, $newHostObj;
+    return $newHostObj;
 }
 
 sub sta_data_get_host {
