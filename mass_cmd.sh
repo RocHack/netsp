@@ -8,7 +8,7 @@ computers='cycle1 cycle2 cycle3
     whiteface panther algonquin wright redfield marshall utility1'
 for C in $computers; do
     echo "[$C] $@";
-    ssh $C "$@";
+    ssh -o StrictHostKeyChecking=no $C "$@";
 done;
 #for C in $computers_notmux; do
 #    ssh $C -t ". .profile; pkill infobox.pl; cd www/csugnet/; ./infobox.pl --slave";

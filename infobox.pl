@@ -640,7 +640,7 @@ sub check_computer_timeout {
         # try to re-start it!
         if (dyn_cache_timeout('hostInit', $name, $_TIME_IS_DOWN)) {
             pr_log("Initializing script on remote host $name (deferred)...\n");
-            deferred_cmd_add("ssh $name \"".
+            deferred_cmd_add("ssh -o StrictHostKeyChecking=no $name \"".
                 "pkill infobox; ".
                 "cd /u/www/ugc/netsp; ".
                 "PERL5LIB=/u/www/ugc/perl5 ./infobox.pl --slave --net $::network_folder\"");
